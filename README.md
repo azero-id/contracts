@@ -3,12 +3,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Built with ink!](https://raw.githubusercontent.com/paritytech/ink/master/.images/badge.svg)](https://github.com/paritytech/ink)
 
-
-This repository contains all smart contracts of the [azero.domains](https://azero.domains) domain name service:
-
-- `azd_registry` (root): Responsible for registrations & metadata updates
-- TODO `azd_base_resolver`: Simple resolver that resolves to the `address.azero` field
-- TODO …
+This repository contains all smart contracts of the [azero.domains](https://azero.domains) domain name service.
 
 ## Documentation
 

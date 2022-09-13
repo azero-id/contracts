@@ -1,18 +1,18 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![feature(min_specialization)]
 
 extern crate alloc;
 
-use ink_lang as ink;
-
-#[ink::contract]
+#[openbrush::contract]
 mod azd_registry {
-    use alloc::string::String;
-    use alloc::vec::Vec;
-
     use crate::azd_registry::Error::{
         CallerIsNotOwner, NoRecordsForAddress, RecordNotFound, WithdrawFailed,
     };
+    use alloc::string::String;
+    use alloc::vec::Vec;
+    use core::result::*;
     use ink_storage::{traits::SpreadAllocate, Mapping};
+    use openbrush::{contracts::psp34::extensions::metadata::*, traits::Storage};
 
     /// Emitted whenever a new name is being registered.
     #[ink(event)]
@@ -72,7 +72,7 @@ mod azd_registry {
     /// to facilitate transfers, voting and DApp-related operations instead
     /// of resorting to long IP addresses that are hard to remember.
     #[ink(storage)]
-    #[derive(Default, SpreadAllocate)]
+    #[derive(Default, SpreadAllocate, Storage)]
     pub struct DomainNameService {
         /// A Stringmap to store all name to addresses mapping.
         name_to_address: Mapping<String, ink_env::AccountId>,
@@ -88,12 +88,18 @@ mod azd_registry {
         /// All names of an address
         owner_to_names: Mapping<ink_env::AccountId, Vec<String>>,
         additional_info: Mapping<String, Vec<(String, String)>>,
+        // PSP34 Storage
+        #[storage_field]
+        psp34: psp34::Data,
+        #[storage_field]
+        metadata: metadata::Data,
     }
 
     /// Errors that can occur upon calling this contract.
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(::scale_info::TypeInfo))]
     pub enum Error {
+        PSP34Error(PSP34Error),
         /// Returned if the name already exists upon registration.
         NameAlreadyExists,
         /// Returned if caller is not owner while required to.
@@ -111,7 +117,10 @@ mod azd_registry {
     }
 
     /// Type alias for the contract's result type.
-    pub type Result<T> = core::result::Result<T, Error>;
+    // pub type Result<T> = core::result::Result<T, Error>;
+
+    impl PSP34 for DomainNameService {}
+    impl PSP34Metadata for DomainNameService {}
 
     impl DomainNameService {
         /// Creates a new domain name service contract.
@@ -139,7 +148,7 @@ mod azd_registry {
         ///   existential deposit).
         /// - Panics in case the transfer failed for another reason.
         #[ink(message)]
-        pub fn withdraw(&mut self, value: Balance) -> Result<()> {
+        pub fn withdraw(&mut self, value: Balance) -> Result<(), Error> {
             if self.owner != self.env().caller() {
                 return Err(CallerIsNotOwner);
             }
@@ -155,7 +164,7 @@ mod azd_registry {
 
         /// Register specific name with caller as owner.
         #[ink(message, payable)]
-        pub fn register(&mut self, name: String) -> Result<()> {
+        pub fn register(&mut self, name: String) -> Result<(), Error> {
             /* Name cannot be empty */
             if name.is_empty() {
                 return Err(Error::NameEmpty);
@@ -182,14 +191,22 @@ mod azd_registry {
                 self.owner_to_names
                     .insert(caller, &Vec::from([name.clone()]));
             }
-            self.env().emit_event(Register { name, from: caller });
+            self.env().emit_event(Register {
+                name: name.clone(),
+                from: caller,
+            });
 
-            Ok(())
+            /* Mint Domain NFT */
+            /* TODO Don't make it shit */
+            match self._mint_to(caller, Id::Bytes(name.clone().as_bytes().to_vec())) {
+                Ok(()) => return Ok(()),
+                Err(error) => return Err(Error::PSP34Error(error)),
+            }
         }
 
         /// Release domain from registration.
         #[ink(message)]
-        pub fn release(&mut self, name: String) -> Result<()> {
+        pub fn release(&mut self, name: String) -> Result<(), Error> {
             let caller = self.env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
@@ -199,14 +216,26 @@ mod azd_registry {
             self.name_to_owner.remove(&name);
             self.name_to_address.remove(&name);
             self.remove_name_from_owner(caller, name.clone());
-            self.env().emit_event(Release { name, from: caller });
+            self.env().emit_event(Release {
+                name: name.clone(),
+                from: caller,
+            });
 
-            Ok(())
+            /* Burn Domain NFT */
+            /* TODO Don't make it shit */
+            match self._burn_from(caller, Id::Bytes(name.clone().as_bytes().to_vec())) {
+                Ok(()) => return Ok(()),
+                Err(error) => return Err(Error::PSP34Error(error)),
+            }
         }
 
         /// Set address for specific name.
         #[ink(message)]
-        pub fn set_address(&mut self, name: String, new_address: ink_env::AccountId) -> Result<()> {
+        pub fn set_address(
+            &mut self,
+            name: String,
+            new_address: ink_env::AccountId,
+        ) -> Result<(), Error> {
             let caller = self.env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
@@ -227,7 +256,7 @@ mod azd_registry {
 
         /// Transfer owner to another address.
         #[ink(message)]
-        pub fn transfer(&mut self, name: String, to: ink_env::AccountId) -> Result<()> {
+        pub fn transfer(&mut self, name: String, to: ink_env::AccountId) -> Result<(), Error> {
             let caller = self.env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
@@ -319,7 +348,7 @@ mod azd_registry {
 
         /// Gets an arbitrary record by key
         #[ink(message)]
-        pub fn get_record(&self, name: String, key: String) -> Result<String> {
+        pub fn get_record(&self, name: String, key: String) -> Result<String, Error> {
             return if let Some(info) = self.additional_info.get(name) {
                 if let Some(value) = info.iter().find(|tuple| {
                     return tuple.0 == key;
@@ -339,7 +368,7 @@ mod azd_registry {
             &mut self,
             name: String,
             records: Vec<(String, String)>,
-        ) -> Result<()> {
+        ) -> Result<(), Error> {
             let caller = self.env().caller();
             let owner = self.get_owner(name.clone());
             if caller != owner {
@@ -353,7 +382,7 @@ mod azd_registry {
 
         /// Gets all records
         #[ink(message)]
-        pub fn get_all_records(&self, name: String) -> Result<Vec<(String, String)>> {
+        pub fn get_all_records(&self, name: String) -> Result<Vec<(String, String)>, Error> {
             return if let Some(info) = self.additional_info.get(name) {
                 return Ok(info);
             } else {
