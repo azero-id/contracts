@@ -1,3 +1,1 @@
-#!/usr/bin/env bash -eu
-
-cargo +nightly contract build --manifest-path azd_registry/Cargo.toml
+cargo +stable contract build --optimization-passes=0 --release --manifest-path azd_registry/Cargo.toml

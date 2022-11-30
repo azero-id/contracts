@@ -1,18 +1,31 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![feature(min_specialization)]
 
 extern crate alloc;
 
-#[openbrush::contract]
+use alloc::string::String;
+use alloc::vec::Vec;
+
+use ink::env;
+
+use crate::azd_registry::Error::{
+    CallerIsNotOwner, NoRecordsForAddress, RecordNotFound, WithdrawFailed,
+};
+use crate::azd_registry::{Register, Release, SetAddress, Transfer};
+
+#[ink::contract]
 mod azd_registry {
-    use crate::azd_registry::Error::{
-        CallerIsNotOwner, NoRecordsForAddress, RecordNotFound, WithdrawFailed,
-    };
     use alloc::string::String;
     use alloc::vec::Vec;
     use core::result::*;
-    use ink_storage::{traits::SpreadAllocate, Mapping};
-    use openbrush::{contracts::psp34::extensions::metadata::*, traits::Storage};
+
+    use ink::env;
+    use ink::storage::Mapping;
+
+    use crate::azd_registry::Error::{
+        CallerIsNotOwner, NoRecordsForAddress, RecordNotFound, WithdrawFailed,
+    };
+
+    pub type Result<T> = core::result::Result<T, Error>;
 
     /// Emitted whenever a new name is being registered.
     #[ink(event)]
@@ -20,7 +33,7 @@ mod azd_registry {
         #[ink(topic)]
         name: String,
         #[ink(topic)]
-        from: ink_env::AccountId,
+        from: ink::primitives::AccountId,
     }
 
     /// Emitted whenever a new name is being registered.
@@ -29,7 +42,7 @@ mod azd_registry {
         #[ink(topic)]
         name: String,
         #[ink(topic)]
-        from: ink_env::AccountId,
+        from: ink::primitives::AccountId,
     }
 
     /// Emitted whenever an address changes.
@@ -37,11 +50,11 @@ mod azd_registry {
     pub struct SetAddress {
         #[ink(topic)]
         name: String,
-        from: ink_env::AccountId,
+        from: ink::primitives::AccountId,
         #[ink(topic)]
-        old_address: Option<ink_env::AccountId>,
+        old_address: Option<ink::primitives::AccountId>,
         #[ink(topic)]
-        new_address: ink_env::AccountId,
+        new_address: ink::primitives::AccountId,
     }
 
     /// Emitted whenever a name is being transferred.
@@ -49,57 +62,35 @@ mod azd_registry {
     pub struct Transfer {
         #[ink(topic)]
         name: String,
-        from: ink_env::AccountId,
+        from: ink::primitives::AccountId,
         #[ink(topic)]
-        old_owner: Option<ink_env::AccountId>,
+        old_owner: Option<ink::primitives::AccountId>,
         #[ink(topic)]
-        new_owner: ink_env::AccountId,
+        new_owner: ink::primitives::AccountId,
     }
 
-    /// Domain name service contract inspired by
-    /// [this blog post](https://medium.com/@chainx_org/secure-and-decentralized-polkadot-domain-name-system-e06c35c2a48d).
-    ///
-    /// # Note
-    ///
-    /// This is a port from the blog post's ink! 1.0 based version of the contract
-    /// to ink! 2.0.
-    ///
-    /// # Description
-    ///
-    /// The main function of this contract is domain name resolution which
-    /// refers to the retrieval of numeric values corresponding to readable
-    /// and easily memorable names such as "polka.dot" which can be used
-    /// to facilitate transfers, voting and DApp-related operations instead
-    /// of resorting to long IP addresses that are hard to remember.
     #[ink(storage)]
-    #[derive(Default, SpreadAllocate, Storage)]
     pub struct DomainNameService {
         /// A Stringmap to store all name to addresses mapping.
-        name_to_address: Mapping<String, ink_env::AccountId>,
+        name_to_address: Mapping<String, ink::primitives::AccountId>,
         /// A Stringmap to store all name to owners mapping.
-        name_to_owner: Mapping<String, ink_env::AccountId>,
+        name_to_owner: Mapping<String, ink::primitives::AccountId>,
         /// The default address.
-        default_address: ink_env::AccountId,
+        default_address: ink::primitives::AccountId,
         /// Fee to pay for domain registration
         fee: Balance,
         /// Owner of the contract
         /// can withdraw funds
-        owner: ink_env::AccountId,
+        owner: ink::primitives::AccountId,
         /// All names of an address
-        owner_to_names: Mapping<ink_env::AccountId, Vec<String>>,
+        owner_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
         additional_info: Mapping<String, Vec<(String, String)>>,
-        // PSP34 Storage
-        #[storage_field]
-        psp34: psp34::Data,
-        #[storage_field]
-        metadata: metadata::Data,
     }
 
     /// Errors that can occur upon calling this contract.
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(::scale_info::TypeInfo))]
     pub enum Error {
-        PSP34Error(PSP34Error),
         /// Returned if the name already exists upon registration.
         NameAlreadyExists,
         /// Returned if caller is not owner while required to.
@@ -117,25 +108,25 @@ mod azd_registry {
     }
 
     /// Type alias for the contract's result type.
-    // pub type Result<T> = core::result::Result<T, Error>;
-
-    impl PSP34 for DomainNameService {}
-    impl PSP34Metadata for DomainNameService {}
 
     impl DomainNameService {
         /// Creates a new domain name service contract.
         #[ink(constructor)]
         pub fn new(fee: Option<Balance>) -> Self {
-            // This call is required in order to correctly initialize the
-            // `Mapping`s of our contract.
-            ink_lang::utils::initialize_contract(|contract: &mut Self| {
-                contract.default_address = Default::default();
-                contract.fee = match fee {
+            let caller = Self::env().caller();
+
+            Self {
+                name_to_address: Mapping::default(),
+                name_to_owner: Mapping::default(),
+                default_address: Default::default(),
+                fee: match fee {
                     Some(fee) => fee,
                     None => Default::default(),
-                };
-                contract.owner = Self::env().caller();
-            })
+                },
+                owner: caller,
+                owner_to_names: Default::default(),
+                additional_info: Default::default(),
+            }
         }
 
         /// Transfers `value` amount of tokens to the caller.
@@ -148,14 +139,14 @@ mod azd_registry {
         ///   existential deposit).
         /// - Panics in case the transfer failed for another reason.
         #[ink(message)]
-        pub fn withdraw(&mut self, value: Balance) -> Result<(), Error> {
-            if self.owner != self.env().caller() {
+        pub fn withdraw(&mut self, value: Balance) -> Result<()> {
+            if self.owner != Self::env().caller() {
                 return Err(CallerIsNotOwner);
             }
 
-            assert!(value <= self.env().balance(), "insufficient funds!");
+            assert!(value <= Self::env().balance(), "insufficient funds!");
 
-            if self.env().transfer(self.env().caller(), value).is_err() {
+            if Self::env().transfer(Self::env().caller(), value).is_err() {
                 return Err(WithdrawFailed);
             }
 
@@ -164,19 +155,19 @@ mod azd_registry {
 
         /// Register specific name with caller as owner.
         #[ink(message, payable)]
-        pub fn register(&mut self, name: String) -> Result<(), Error> {
+        pub fn register(&mut self, name: String) -> Result<()> {
             /* Name cannot be empty */
             if name.is_empty() {
                 return Err(Error::NameEmpty);
             }
 
             /* Make sure the registrant is paid for */
-            let _transferred = self.env().transferred_value();
+            let _transferred = Self::env().transferred_value();
             if _transferred < self.fee {
                 return Err(Error::FeeNotPaid);
             }
 
-            let caller = self.env().caller();
+            let caller = Self::env().caller();
             if self.name_to_owner.contains(&name) {
                 return Err(Error::NameAlreadyExists);
             }
@@ -191,23 +182,25 @@ mod azd_registry {
                 self.owner_to_names
                     .insert(caller, &Vec::from([name.clone()]));
             }
-            self.env().emit_event(Register {
+            Self::env().emit_event(Register {
                 name: name.clone(),
                 from: caller,
             });
 
-            /* Mint Domain NFT */
-            /* TODO Don't make it shit */
-            match self._mint_to(caller, Id::Bytes(name.clone().as_bytes().to_vec())) {
-                Ok(()) => return Ok(()),
-                Err(error) => return Err(Error::PSP34Error(error)),
-            }
+            Ok(())
+
+            // /* Mint Domain NFT */
+            // /* TODO Don't make it shit */
+            // return match self._mint_to(caller, Id::Bytes(name.clone().as_bytes().to_vec())) {
+            //     Ok(()) => Ok(()),
+            //     Err(_error) => Err(RecordNotFound),
+            // };
         }
 
         /// Release domain from registration.
         #[ink(message)]
-        pub fn release(&mut self, name: String) -> Result<(), Error> {
-            let caller = self.env().caller();
+        pub fn release(&mut self, name: String) -> Result<()> {
+            let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
                 return Err(CallerIsNotOwner);
@@ -216,17 +209,19 @@ mod azd_registry {
             self.name_to_owner.remove(&name);
             self.name_to_address.remove(&name);
             self.remove_name_from_owner(caller, name.clone());
-            self.env().emit_event(Release {
+            Self::env().emit_event(Release {
                 name: name.clone(),
                 from: caller,
             });
 
-            /* Burn Domain NFT */
-            /* TODO Don't make it shit */
-            match self._burn_from(caller, Id::Bytes(name.clone().as_bytes().to_vec())) {
-                Ok(()) => return Ok(()),
-                Err(error) => return Err(Error::PSP34Error(error)),
-            }
+            Ok(())
+
+            // /* Burn Domain NFT */
+            // /* TODO Don't make it shit */
+            // return match self._burn_from(caller, Id::Bytes(name.clone().as_bytes().to_vec())) {
+            //     Ok(()) => Ok(()),
+            //     Err(error) => Err(RecordNotFound),
+            // };
         }
 
         /// Set address for specific name.
@@ -234,9 +229,9 @@ mod azd_registry {
         pub fn set_address(
             &mut self,
             name: String,
-            new_address: ink_env::AccountId,
-        ) -> Result<(), Error> {
-            let caller = self.env().caller();
+            new_address: ink::primitives::AccountId,
+        ) -> Result<()> {
+            let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
                 return Err(Error::CallerIsNotOwner);
@@ -245,7 +240,7 @@ mod azd_registry {
             let old_address = self.name_to_address.get(&name);
             self.name_to_address.insert(&name, &new_address);
 
-            self.env().emit_event(SetAddress {
+            Self::env().emit_event(SetAddress {
                 name,
                 from: caller,
                 old_address,
@@ -256,8 +251,8 @@ mod azd_registry {
 
         /// Transfer owner to another address.
         #[ink(message)]
-        pub fn transfer(&mut self, name: String, to: ink_env::AccountId) -> Result<(), Error> {
-            let caller = self.env().caller();
+        pub fn transfer(&mut self, name: String, to: ink::primitives::AccountId) -> Result<()> {
+            let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
                 return Err(CallerIsNotOwner);
@@ -277,7 +272,7 @@ mod azd_registry {
                 self.owner_to_names.insert(to, &Vec::from([name.clone()]));
             }
 
-            self.env().emit_event(Transfer {
+            Self::env().emit_event(Transfer {
                 name,
                 from: caller,
                 old_owner,
@@ -289,25 +284,25 @@ mod azd_registry {
 
         /// Get address for specific name.
         #[ink(message)]
-        pub fn get_address(&self, name: String) -> ink_env::AccountId {
+        pub fn get_address(&self, name: String) -> ink::primitives::AccountId {
             self.get_address_or_default(name)
         }
 
         /// Get owner of specific name.
         #[ink(message)]
-        pub fn get_owner(&self, name: String) -> ink_env::AccountId {
+        pub fn get_owner(&self, name: String) -> ink::primitives::AccountId {
             self.get_owner_or_default(&name)
         }
 
         /// Returns the owner given the String or the default address.
-        fn get_owner_or_default(&self, name: &String) -> ink_env::AccountId {
+        fn get_owner_or_default(&self, name: &String) -> ink::primitives::AccountId {
             self.name_to_owner
                 .get(&name)
                 .unwrap_or(self.default_address)
         }
 
         /// Returns the address given the String or the default address.
-        fn get_address_or_default(&self, name: String) -> ink_env::AccountId {
+        fn get_address_or_default(&self, name: String) -> ink::primitives::AccountId {
             self.name_to_address
                 .get(&name)
                 .unwrap_or(self.default_address)
@@ -315,12 +310,15 @@ mod azd_registry {
 
         /// Returns all names the address owns
         #[ink(message)]
-        pub fn get_names_of_address(&self, owner: ink_env::AccountId) -> Option<Vec<String>> {
+        pub fn get_names_of_address(
+            &self,
+            owner: ink::primitives::AccountId,
+        ) -> Option<Vec<String>> {
             return self.owner_to_names.get(owner);
         }
 
         /// Deletes a name from owner
-        fn remove_name_from_owner(&mut self, owner: ink_env::AccountId, name: String) {
+        fn remove_name_from_owner(&mut self, owner: ink::primitives::AccountId, name: String) {
             if let Some(old_names) = self.owner_to_names.get(owner) {
                 let mut new_names: Vec<String> = old_names.clone();
                 new_names.retain(|prevname| prevname.clone() != name);
@@ -330,7 +328,7 @@ mod azd_registry {
 
         // /// Sets an arbitrary record
         // #[ink(message)]
-        // pub fn set_record(&mut self, owner: ink_env::AccountId, record: (String, String)) {
+        // pub fn set_record(&mut self, owner:ink::primitives::AccountId, record: (String, String)) {
         //     self.additional_info.insert(owner, )
         //
         //     // /* If info vec already exists, modify it */
@@ -348,7 +346,7 @@ mod azd_registry {
 
         /// Gets an arbitrary record by key
         #[ink(message)]
-        pub fn get_record(&self, name: String, key: String) -> Result<String, Error> {
+        pub fn get_record(&self, name: String, key: String) -> Result<String> {
             return if let Some(info) = self.additional_info.get(name) {
                 if let Some(value) = info.iter().find(|tuple| {
                     return tuple.0 == key;
@@ -368,8 +366,8 @@ mod azd_registry {
             &mut self,
             name: String,
             records: Vec<(String, String)>,
-        ) -> Result<(), Error> {
-            let caller = self.env().caller();
+        ) -> Result<()> {
+            let caller: ink::primitives::AccountId = Self::env().caller();
             let owner = self.get_owner(name.clone());
             if caller != owner {
                 return Err(CallerIsNotOwner);
@@ -382,7 +380,7 @@ mod azd_registry {
 
         /// Gets all records
         #[ink(message)]
-        pub fn get_all_records(&self, name: String) -> Result<Vec<(String, String)>, Error> {
+        pub fn get_all_records(&self, name: String) -> Result<Vec<(String, String)>> {
             return if let Some(info) = self.additional_info.get(name) {
                 return Ok(info);
             } else {
@@ -393,18 +391,28 @@ mod azd_registry {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
-        use alloc::string::ToString;
-        use ink_env::test::*;
-        use ink_env::DefaultEnvironment;
-        use ink_lang as ink;
+        use alloc::string::{String, ToString};
+        use alloc::vec::Vec;
 
-        fn default_accounts() -> DefaultAccounts<ink_env::DefaultEnvironment> {
-            ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+        use ink;
+        use ink::env::DefaultEnvironment;
+        use ink::primitives::AccountId;
+        use DefaultEnvironment;
+
+        use test::*;
+
+        // use openbrush::traits::Balance;
+        use crate::azd_registry::DomainNameService;
+        use crate::azd_registry::Error::CallerIsNotOwner;
+
+        use super::*;
+
+        fn default_accounts() -> DefaultAccounts<DefaultEnvironment> {
+            test::default_accounts::<DefaultEnvironment>()
         }
 
-        fn set_next_caller(caller: ink_env::AccountId) {
-            ink_env::test::set_caller::<ink_env::DefaultEnvironment>(caller);
+        fn set_next_caller(caller: ink::primitives::AccountId) {
+            test::set_caller::<DefaultEnvironment>(caller);
         }
 
         #[ink::test]
@@ -435,14 +443,12 @@ mod azd_registry {
             let mut contract = DomainNameService::new(Some(50));
 
             let acc_balance_before_transfer: Balance =
-                ink_env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
-                    .unwrap();
-            set_value_transferred::<ink_env::DefaultEnvironment>(50 ^ 12);
+                test::get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
+            set_value_transferred::<DefaultEnvironment>(50 ^ 12);
             assert_eq!(contract.register(name.clone()), Ok(()));
             assert_eq!(contract.withdraw(50 ^ 12), Ok(()));
             let acc_balance_after_withdraw: Balance =
-                ink_env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
-                    .unwrap();
+                test::get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
             assert_eq!(
                 acc_balance_before_transfer + 50 ^ 12,
                 acc_balance_after_withdraw
@@ -458,9 +464,8 @@ mod azd_registry {
             let mut contract = DomainNameService::new(Some(50));
 
             let acc_balance_before_transfer: Balance =
-                ink_env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
-                    .unwrap();
-            set_value_transferred::<ink_env::DefaultEnvironment>(50 ^ 12);
+                test::get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
+            set_value_transferred::<DefaultEnvironment>(50 ^ 12);
             assert_eq!(contract.register(name.clone()), Ok(()));
 
             set_next_caller(default_accounts.bob);
@@ -507,7 +512,7 @@ mod azd_registry {
             set_next_caller(default_accounts.alice);
             let mut contract = DomainNameService::new(Some(50 ^ 12));
 
-            set_value_transferred::<ink_env::DefaultEnvironment>(50 ^ 12);
+            set_value_transferred::<DefaultEnvironment>(50 ^ 12);
             assert_eq!(contract.register(name.clone()), Ok(()));
             assert_eq!(contract.register(name), Err(Error::NameAlreadyExists));
         }
@@ -662,7 +667,7 @@ mod azd_registry {
             assert_eq!(
                 contract.set_all_records(
                     domain_name.clone(),
-                    Vec::from([("twitter".to_string(), "@newtest".to_string())])
+                    Vec::from([("twitter".to_string(), "@newtest".to_string())]),
                 ),
                 Ok(())
             );
