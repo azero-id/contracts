@@ -10,13 +10,17 @@ mod azd_registry {
     use alloc::vec::Vec;
     use core::result::*;
 
-    use ink::env;
-    use ink::storage::Mapping;
-
     use crate::azd_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
         WithdrawFailed,
     };
+    use ink::env;
+    use ink::storage::Mapping;
+
+    // use crate::azd_registry::Error::{
+    //     CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
+    //     WithdrawFailed,
+    // };
 
     pub type Result<T> = core::result::Result<T, Error>;
 
@@ -85,6 +89,7 @@ mod azd_registry {
 
     /// Errors that can occur upon calling this contract.
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
         /// Returned if the name already exists upon registration.
         NameAlreadyExists,
