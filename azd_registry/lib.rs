@@ -2,15 +2,7 @@
 
 extern crate alloc;
 
-use alloc::string::String;
-use alloc::vec::Vec;
-
 use ink::env;
-
-use crate::azd_registry::Error::{
-    CallerIsNotOwner, NoRecordsForAddress, RecordNotFound, WithdrawFailed,
-};
-use crate::azd_registry::{Register, Release, SetAddress, Transfer};
 
 #[ink::contract]
 mod azd_registry {
@@ -394,25 +386,24 @@ mod azd_registry {
         use alloc::string::{String, ToString};
         use alloc::vec::Vec;
 
+        use crate::env::test::DefaultAccounts;
         use ink;
         use ink::env::DefaultEnvironment;
         use ink::primitives::AccountId;
-        use DefaultEnvironment;
 
-        use test::*;
+        use ink::env::test::*;
 
-        // use openbrush::traits::Balance;
         use crate::azd_registry::DomainNameService;
         use crate::azd_registry::Error::CallerIsNotOwner;
 
         use super::*;
 
         fn default_accounts() -> DefaultAccounts<DefaultEnvironment> {
-            test::default_accounts::<DefaultEnvironment>()
+            ink::env::test::default_accounts::<DefaultEnvironment>()
         }
 
         fn set_next_caller(caller: ink::primitives::AccountId) {
-            test::set_caller::<DefaultEnvironment>(caller);
+            ink::env::test::set_caller::<DefaultEnvironment>(caller);
         }
 
         #[ink::test]
@@ -443,12 +434,14 @@ mod azd_registry {
             let mut contract = DomainNameService::new(Some(50));
 
             let acc_balance_before_transfer: Balance =
-                test::get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
-            set_value_transferred::<DefaultEnvironment>(50 ^ 12);
+                ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
+                    .unwrap();
+            ink::env::test::set_value_transferred::<DefaultEnvironment>(50 ^ 12);
             assert_eq!(contract.register(name.clone()), Ok(()));
             assert_eq!(contract.withdraw(50 ^ 12), Ok(()));
             let acc_balance_after_withdraw: Balance =
-                test::get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
+                ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
+                    .unwrap();
             assert_eq!(
                 acc_balance_before_transfer + 50 ^ 12,
                 acc_balance_after_withdraw
@@ -464,8 +457,9 @@ mod azd_registry {
             let mut contract = DomainNameService::new(Some(50));
 
             let acc_balance_before_transfer: Balance =
-                test::get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
-            set_value_transferred::<DefaultEnvironment>(50 ^ 12);
+                ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
+                    .unwrap();
+            ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(50 ^ 12);
             assert_eq!(contract.register(name.clone()), Ok(()));
 
             set_next_caller(default_accounts.bob);
