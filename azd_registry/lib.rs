@@ -14,12 +14,13 @@ mod azd_registry {
     use ink::storage::Mapping;
 
     use crate::azd_registry::Error::{
-        CallerIsNotOwner, NoRecordsForAddress, RecordNotFound, WithdrawFailed,
+        CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
+        WithdrawFailed,
     };
 
     pub type Result<T> = core::result::Result<T, Error>;
 
-    /// Emitted whenever a new name is being registered.
+    /// Emitted whenever a new name is registered.
     #[ink(event)]
     pub struct Register {
         #[ink(topic)]
@@ -28,7 +29,7 @@ mod azd_registry {
         from: ink::primitives::AccountId,
     }
 
-    /// Emitted whenever a new name is being registered.
+    /// Emitted whenever a name is released
     #[ink(event)]
     pub struct Release {
         #[ink(topic)]
@@ -49,7 +50,7 @@ mod azd_registry {
         new_address: ink::primitives::AccountId,
     }
 
-    /// Emitted whenever a name is being transferred.
+    /// Emitted whenever a name is transferred.
     #[ink(event)]
     pub struct Transfer {
         #[ink(topic)]
@@ -63,6 +64,8 @@ mod azd_registry {
 
     #[ink(storage)]
     pub struct DomainNameService {
+        /// A mapping to set a controller for each address
+        name_to_controller: Mapping<String, ink::primitives::AccountId>,
         /// A Stringmap to store all name to addresses mapping.
         name_to_address: Mapping<String, ink::primitives::AccountId>,
         /// A Stringmap to store all name to owners mapping.
@@ -77,21 +80,24 @@ mod azd_registry {
         /// All names of an address
         owner_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
         additional_info: Mapping<String, Vec<(String, String)>>,
+        // TODO: replace Vector with Mapping
+        metadata: Mapping<String, Mapping<String, String>>,
     }
 
     /// Errors that can occur upon calling this contract.
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(::scale_info::TypeInfo))]
     pub enum Error {
         /// Returned if the name already exists upon registration.
         NameAlreadyExists,
         /// Returned if caller is not owner while required to.
         CallerIsNotOwner,
-        /// Returned if caller did not send fee
+        /// This call requires the caller to be a controller of the domain
+        CallerIsNotController,
+        /// Returned if caller did not send a required fee
         FeeNotPaid,
         /// Returned if name is empty
         NameEmpty,
-        /// Record with the following key doesn't exist
+        /// Record with the key doesn't exist
         RecordNotFound,
         /// Address has no records
         NoRecordsForAddress,
@@ -99,15 +105,14 @@ mod azd_registry {
         WithdrawFailed,
     }
 
-    /// Type alias for the contract's result type.
-
     impl DomainNameService {
-        /// Creates a new domain name service contract.
+        /// Creates a new AZNS contract.
         #[ink(constructor)]
         pub fn new(fee: Option<Balance>) -> Self {
             let caller = Self::env().caller();
 
             Self {
+                name_to_controller: Mapping::default(),
                 name_to_address: Mapping::default(),
                 name_to_owner: Mapping::default(),
                 default_address: Default::default(),
@@ -153,18 +158,28 @@ mod azd_registry {
                 return Err(Error::NameEmpty);
             }
 
-            /* Make sure the registrant is paid for */
+            /* Make sure the register is paid for */
             let _transferred = Self::env().transferred_value();
             if _transferred < self.fee {
                 return Err(Error::FeeNotPaid);
             }
 
+            /* Ensure domain is not already registered */
             let caller = Self::env().caller();
             if self.name_to_owner.contains(&name) {
                 return Err(Error::NameAlreadyExists);
             }
 
+            /* Set domain owner */
             self.name_to_owner.insert(&name, &caller);
+
+            /* Set domain controller */
+            self.name_to_controller.insert(&name, &caller);
+
+            /* Set resolved domain */
+            self.name_to_address.insert(&name, &caller);
+
+            /* Update convenience mapping */
             let previous_names = self.owner_to_names.get(caller);
             if let Some(names) = previous_names {
                 let mut new_names = names.clone();
@@ -174,19 +189,14 @@ mod azd_registry {
                 self.owner_to_names
                     .insert(caller, &Vec::from([name.clone()]));
             }
+
+            /* Emit register event */
             Self::env().emit_event(Register {
                 name: name.clone(),
                 from: caller,
             });
 
             Ok(())
-
-            // /* Mint Domain NFT */
-            // /* TODO Don't make it shit */
-            // return match self._mint_to(caller, Id::Bytes(name.clone().as_bytes().to_vec())) {
-            //     Ok(()) => Ok(()),
-            //     Err(_error) => Err(RecordNotFound),
-            // };
         }
 
         /// Release domain from registration.
@@ -201,32 +211,29 @@ mod azd_registry {
             self.name_to_owner.remove(&name);
             self.name_to_address.remove(&name);
             self.remove_name_from_owner(caller, name.clone());
+            self.name_to_controller.remove(&name);
+            self.additional_info.remove(&name);
+
             Self::env().emit_event(Release {
                 name: name.clone(),
                 from: caller,
             });
 
             Ok(())
-
-            // /* Burn Domain NFT */
-            // /* TODO Don't make it shit */
-            // return match self._burn_from(caller, Id::Bytes(name.clone().as_bytes().to_vec())) {
-            //     Ok(()) => Ok(()),
-            //     Err(error) => Err(RecordNotFound),
-            // };
         }
 
-        /// Set address for specific name.
+        /// Set resolved address for specific name.
         #[ink(message)]
         pub fn set_address(
             &mut self,
             name: String,
             new_address: ink::primitives::AccountId,
         ) -> Result<()> {
+            /* Ensure the caller is the controller */
             let caller = Self::env().caller();
-            let owner = self.get_owner_or_default(&name);
-            if caller != owner {
-                return Err(Error::CallerIsNotOwner);
+            let controller = self.get_controller_or_default(&name);
+            if caller != controller {
+                return Err(CallerIsNotController);
             }
 
             let old_address = self.name_to_address.get(&name);
@@ -244,12 +251,14 @@ mod azd_registry {
         /// Transfer owner to another address.
         #[ink(message)]
         pub fn transfer(&mut self, name: String, to: ink::primitives::AccountId) -> Result<()> {
+            /* Ensure the caller is the owner of the domain */
             let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
                 return Err(CallerIsNotOwner);
             }
 
+            /* Change owner */
             let old_owner = self.name_to_owner.get(&name);
             self.name_to_owner.insert(&name, &to);
 
@@ -284,6 +293,12 @@ mod azd_registry {
         #[ink(message)]
         pub fn get_owner(&self, name: String) -> ink::primitives::AccountId {
             self.get_owner_or_default(&name)
+        }
+
+        pub fn get_controller_or_default(&self, name: &String) -> ink::primitives::AccountId {
+            self.name_to_controller
+                .get(&name)
+                .unwrap_or(self.default_address)
         }
 
         /// Returns the owner given the String or the default address.
@@ -359,11 +374,14 @@ mod azd_registry {
             name: String,
             records: Vec<(String, String)>,
         ) -> Result<()> {
+            /* Ensure that the caller is a controller */
             let caller: ink::primitives::AccountId = Self::env().caller();
-            let owner = self.get_owner(name.clone());
-            if caller != owner {
-                return Err(CallerIsNotOwner);
+            let controller = self.get_controller_or_default(&name);
+            if caller != controller {
+                return Err(CallerIsNotController);
             }
+
+            self.metadata
 
             self.additional_info.insert(name, &records);
 
@@ -402,7 +420,7 @@ mod azd_registry {
             ink::env::test::default_accounts::<DefaultEnvironment>()
         }
 
-        fn set_next_caller(caller: ink::primitives::AccountId) {
+        fn set_next_caller(caller: AccountId) {
             ink::env::test::set_caller::<DefaultEnvironment>(caller);
         }
 
@@ -459,7 +477,7 @@ mod azd_registry {
             let acc_balance_before_transfer: Balance =
                 ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
                     .unwrap();
-            ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(50 ^ 12);
+            ink::env::test::set_value_transferred::<DefaultEnvironment>(50 ^ 12);
             assert_eq!(contract.register(name.clone()), Ok(()));
 
             set_next_caller(default_accounts.bob);
@@ -578,7 +596,7 @@ mod azd_registry {
             set_next_caller(accounts.bob);
             assert_eq!(
                 contract.set_address(name.clone(), accounts.bob),
-                Err(Error::CallerIsNotOwner)
+                Err(CallerIsNotOwner)
             );
 
             // Caller is owner, set_address will be successful
@@ -612,7 +630,7 @@ mod azd_registry {
             // Owner is bob, alice `set_address` should fail.
             assert_eq!(
                 contract.set_address(name.clone(), accounts.bob),
-                Err(Error::CallerIsNotOwner)
+                Err(CallerIsNotOwner)
             );
 
             set_next_caller(accounts.bob);
