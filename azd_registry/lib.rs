@@ -81,7 +81,6 @@ mod azd_registry {
         owner_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
         additional_info: Mapping<String, Vec<(String, String)>>,
         // TODO: replace Vector with Mapping
-        metadata: Mapping<String, Mapping<String, String>>,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -380,8 +379,6 @@ mod azd_registry {
             if caller != controller {
                 return Err(CallerIsNotController);
             }
-
-            self.metadata
 
             self.additional_info.insert(name, &records);
 
