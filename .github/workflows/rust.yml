@@ -16,8 +16,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - uses: Swatinem/rust-cache@v2
+    - run: rustup toolchain install stable --profile minimal
     - name: Install rust-src
       run: rustup component add rust-src
+    - name: Install dylint-link
+      run: cargo install dylint-link
     - name: Install Cargo Contract
       run: cargo install --force --locked cargo-contract
     - name: Build
