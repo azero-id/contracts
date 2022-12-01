@@ -414,7 +414,6 @@ mod tests {
     use crate::env::test::DefaultAccounts;
     use ink;
     use ink::env::DefaultEnvironment;
-    use ink::primitives::AccountId;
 
     use ink::env::test::*;
 
