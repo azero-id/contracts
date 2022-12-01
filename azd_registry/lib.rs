@@ -539,6 +539,18 @@ mod tests {
     }
 
     #[ink::test]
+    fn register_disallowed_reverts() {
+        let default_accounts = default_accounts();
+        let name = String::from("ýáěšžčřýáěščžá");
+
+        set_next_caller(default_accounts.alice);
+        let mut contract = DomainNameService::new();
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name.clone()), Err(Error::NameNotAllowed));
+    }
+
+    #[ink::test]
     fn register_with_fee_works() {
         let default_accounts = default_accounts();
         let name = String::from("test");
@@ -605,6 +617,7 @@ mod tests {
         assert_eq!(contract.get_owner(name.clone()), Default::default());
         assert_eq!(contract.get_address(name.clone()), Default::default());
     }
+
     #[ink::test]
     fn controller_separation_works() {
         let accounts = default_accounts();
