@@ -9,6 +9,7 @@ use alloc::vec::Vec;
 use ink::env;
 use ink::storage::Mapping;
 
+mod name_checker;
 mod util;
 
 #[ink::contract]
