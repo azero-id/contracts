@@ -287,6 +287,26 @@ mod azd_registry {
             Ok(())
         }
 
+        #[ink(message)]
+        pub fn set_controller(
+            &mut self,
+            name: String,
+            new_controller: ink::primitives::AccountId,
+        ) -> Result<()> {
+            /* Ensure caller is either controller or owner */
+            let caller = Self::env().caller();
+            let owner = self.get_owner_or_default(&name);
+            let controller = self.get_controller_or_default(&name);
+
+            if caller != owner && caller != controller {
+                return Err(CallerIsNotOwner);
+            }
+
+            self.name_to_controller.insert(&name, &new_controller);
+
+            Ok(())
+        }
+
         /// Get address for specific name.
         #[ink(message)]
         pub fn get_address(&self, name: String) -> ink::primitives::AccountId {
@@ -337,24 +357,6 @@ mod azd_registry {
             }
         }
 
-        // /// Sets an arbitrary record
-        // #[ink(message)]
-        // pub fn set_record(&mut self, owner:ink::primitives::AccountId, record: (String, String)) {
-        //     self.additional_info.insert(owner, )
-        //
-        //     // /* If info vec already exists, modify it */
-        //     // if let Some(original_info) = self.additional_info.get(owner) {
-        //     //     /* Filter out the record from the vector, if it is already there */
-        //     //     let mut filtered_info: Vec<&(String, String)> = original_info.clone().iter().filter(|&&tuple| {
-        //     //         return tuple.0 != record.0.clone();
-        //     //     }).collect();
-        //     //     filtered_info.push(&record);
-        //     //     self.additional_info.insert(owner, &Vec::from(filtered_info));
-        //     // } else {
-        //     //     self.additional_info.insert(owner, &Vec::from([record]));
-        //     // }
-        // }
-
         /// Gets an arbitrary record by key
         #[ink(message)]
         pub fn get_record(&self, name: String, key: String) -> Result<String> {
@@ -400,295 +402,298 @@ mod azd_registry {
             };
         }
     }
+}
 
-    #[cfg(test)]
-    mod tests {
-        use alloc::string::{String, ToString};
-        use alloc::vec::Vec;
+#[cfg(test)]
+mod tests {
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
 
-        use crate::env::test::DefaultAccounts;
-        use ink;
-        use ink::env::DefaultEnvironment;
-        use ink::primitives::AccountId;
+    use crate::env::test::DefaultAccounts;
+    use ink;
+    use ink::env::DefaultEnvironment;
+    use ink::primitives::AccountId;
 
-        use ink::env::test::*;
+    use ink::env::test::*;
 
-        use crate::azd_registry::DomainNameService;
-        use crate::azd_registry::Error::CallerIsNotOwner;
+    type Balance = u128;
 
-        use super::*;
+    use crate::azd_registry::Error::{CallerIsNotController, CallerIsNotOwner};
+    use crate::azd_registry::{DomainNameService, Error};
 
-        fn default_accounts() -> DefaultAccounts<DefaultEnvironment> {
-            ink::env::test::default_accounts::<DefaultEnvironment>()
-        }
+    use super::*;
 
-        fn set_next_caller(caller: AccountId) {
-            ink::env::test::set_caller::<DefaultEnvironment>(caller);
-        }
+    fn default_accounts() -> DefaultAccounts<DefaultEnvironment> {
+        ink::env::test::default_accounts::<DefaultEnvironment>()
+    }
 
-        #[ink::test]
-        fn register_works() {
-            let default_accounts = default_accounts();
-            let name = String::from("test");
+    fn set_next_caller(caller: ink::primitives::AccountId) {
+        ink::env::test::set_caller::<DefaultEnvironment>(caller);
+    }
 
-            set_next_caller(default_accounts.alice);
-            let mut contract = DomainNameService::new(None);
+    #[ink::test]
+    fn register_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
 
-            assert_eq!(contract.register(name.clone()), Ok(()));
-            assert_eq!(
-                contract.get_names_of_address(default_accounts.alice),
-                Some(Vec::from([name.clone()]))
-            );
-            assert_eq!(
-                contract.register(name.clone()),
-                Err(Error::NameAlreadyExists)
-            );
-        }
+        set_next_caller(default_accounts.alice);
+        let mut contract = DomainNameService::new(None);
 
-        #[ink::test]
-        fn withdraw_works() {
-            let default_accounts = default_accounts();
-            let name = String::from("test");
+        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(
+            contract.get_names_of_address(default_accounts.alice),
+            Some(Vec::from([name.clone()]))
+        );
+        assert_eq!(
+            contract.register(name.clone()),
+            Err(Error::NameAlreadyExists)
+        );
+    }
 
-            set_next_caller(default_accounts.alice);
-            let mut contract = DomainNameService::new(Some(50));
+    #[ink::test]
+    fn withdraw_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
 
-            let acc_balance_before_transfer: Balance =
-                ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
-                    .unwrap();
-            ink::env::test::set_value_transferred::<DefaultEnvironment>(50 ^ 12);
-            assert_eq!(contract.register(name.clone()), Ok(()));
-            assert_eq!(contract.withdraw(50 ^ 12), Ok(()));
-            let acc_balance_after_withdraw: Balance =
-                ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
-                    .unwrap();
-            assert_eq!(
-                acc_balance_before_transfer + 50 ^ 12,
-                acc_balance_after_withdraw
-            );
-        }
+        set_next_caller(default_accounts.alice);
+        let mut contract = DomainNameService::new(Some(50));
 
-        #[ink::test]
-        fn withdraw_only_owner() {
-            let default_accounts = default_accounts();
-            let name = String::from("test");
+        let acc_balance_before_transfer: Balance =
+            ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
+                .unwrap();
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(50 ^ 12);
+        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.withdraw(50 ^ 12), Ok(()));
+        let acc_balance_after_withdraw: Balance =
+            ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
+                .unwrap();
+        assert_eq!(
+            acc_balance_before_transfer + 50 ^ 12,
+            acc_balance_after_withdraw
+        );
+    }
 
-            set_next_caller(default_accounts.alice);
-            let mut contract = DomainNameService::new(Some(50));
+    #[ink::test]
+    fn withdraw_only_owner() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
 
-            let acc_balance_before_transfer: Balance =
-                ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
-                    .unwrap();
-            ink::env::test::set_value_transferred::<DefaultEnvironment>(50 ^ 12);
-            assert_eq!(contract.register(name.clone()), Ok(()));
+        set_next_caller(default_accounts.alice);
+        let mut contract = DomainNameService::new(Some(50));
 
-            set_next_caller(default_accounts.bob);
-            assert_eq!(contract.withdraw(50 ^ 12), Err(CallerIsNotOwner));
-        }
+        let acc_balance_before_transfer: Balance =
+            ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
+                .unwrap();
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(50 ^ 12);
+        assert_eq!(contract.register(name.clone()), Ok(()));
 
-        #[ink::test]
-        fn reverse_search_works() {
-            let default_accounts = default_accounts();
-            let name = String::from("test");
-            let name2 = String::from("test2");
+        set_next_caller(default_accounts.bob);
+        assert_eq!(contract.withdraw(50 ^ 12), Err(CallerIsNotOwner));
+    }
 
-            set_next_caller(default_accounts.alice);
-            let mut contract = DomainNameService::new(None);
+    #[ink::test]
+    fn reverse_search_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
+        let name2 = String::from("test2");
 
-            assert_eq!(contract.register(name.clone()), Ok(()));
-            assert_eq!(contract.register(name2.clone()), Ok(()));
-            assert!(contract
-                .get_names_of_address(default_accounts.alice)
-                .unwrap()
-                .contains(&String::from("test")));
-            assert!(contract
-                .get_names_of_address(default_accounts.alice)
-                .unwrap()
-                .contains(&String::from("test2")));
-        }
+        set_next_caller(default_accounts.alice);
+        let mut contract = DomainNameService::new(None);
 
-        #[ink::test]
-        fn register_empty_reverts() {
-            let default_accounts = default_accounts();
-            let name = String::from("");
+        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name2.clone()), Ok(()));
+        assert!(contract
+            .get_names_of_address(default_accounts.alice)
+            .unwrap()
+            .contains(&String::from("test")));
+        assert!(contract
+            .get_names_of_address(default_accounts.alice)
+            .unwrap()
+            .contains(&String::from("test2")));
+    }
 
-            set_next_caller(default_accounts.alice);
-            let mut contract = DomainNameService::new(None);
+    #[ink::test]
+    fn register_empty_reverts() {
+        let default_accounts = default_accounts();
+        let name = String::from("");
 
-            assert_eq!(contract.register(name.clone()), Err(Error::NameEmpty));
-        }
+        set_next_caller(default_accounts.alice);
+        let mut contract = DomainNameService::new(None);
 
-        #[ink::test]
-        fn register_with_fee_works() {
-            let default_accounts = default_accounts();
-            let name = String::from("test");
+        assert_eq!(contract.register(name.clone()), Err(Error::NameEmpty));
+    }
 
-            set_next_caller(default_accounts.alice);
-            let mut contract = DomainNameService::new(Some(50 ^ 12));
+    #[ink::test]
+    fn register_with_fee_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
 
-            set_value_transferred::<DefaultEnvironment>(50 ^ 12);
-            assert_eq!(contract.register(name.clone()), Ok(()));
-            assert_eq!(contract.register(name), Err(Error::NameAlreadyExists));
-        }
+        set_next_caller(default_accounts.alice);
+        let mut contract = DomainNameService::new(Some(50 ^ 12));
 
-        #[ink::test]
-        fn register_without_fee_reverts() {
-            let default_accounts = default_accounts();
-            let name = String::from("test");
+        set_value_transferred::<DefaultEnvironment>(50 ^ 12);
+        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name), Err(Error::NameAlreadyExists));
+    }
 
-            set_next_caller(default_accounts.alice);
-            let mut contract = DomainNameService::new(Some(50 ^ 12));
+    #[ink::test]
+    fn register_without_fee_reverts() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
 
-            assert_eq!(contract.register(name), Err(Error::FeeNotPaid));
-        }
+        set_next_caller(default_accounts.alice);
+        let mut contract = DomainNameService::new(Some(50 ^ 12));
 
-        #[ink::test]
-        fn release_works() {
-            let default_accounts = default_accounts();
-            let name = String::from("test");
+        assert_eq!(contract.register(name), Err(Error::FeeNotPaid));
+    }
 
-            set_next_caller(default_accounts.alice);
-            let mut contract = DomainNameService::new(None);
+    #[ink::test]
+    fn release_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
 
-            assert_eq!(contract.register(name.clone()), Ok(()));
-            assert_eq!(
-                contract.set_address(name.clone(), default_accounts.alice),
-                Ok(())
-            );
-            assert_eq!(contract.get_owner(name.clone()), default_accounts.alice);
-            assert_eq!(contract.get_address(name.clone()), default_accounts.alice);
-            assert_eq!(
-                contract.get_names_of_address(default_accounts.alice),
-                Some(Vec::from([name.clone()]))
-            );
+        set_next_caller(default_accounts.alice);
+        let mut contract = DomainNameService::new(None);
 
-            assert_eq!(contract.release(name.clone()), Ok(()));
-            assert_eq!(contract.get_owner(name.clone()), Default::default());
-            assert_eq!(contract.get_address(name.clone()), Default::default());
-            assert_eq!(
-                contract.get_names_of_address(default_accounts.alice),
-                Some(Vec::from([]))
-            );
+        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(
+            contract.set_address(name.clone(), default_accounts.alice),
+            Ok(())
+        );
+        assert_eq!(contract.get_owner(name.clone()), default_accounts.alice);
+        assert_eq!(contract.get_address(name.clone()), default_accounts.alice);
+        assert_eq!(
+            contract.get_names_of_address(default_accounts.alice),
+            Some(Vec::from([name.clone()]))
+        );
 
-            /* Another account can register again*/
-            set_next_caller(default_accounts.bob);
-            assert_eq!(contract.register(name.clone()), Ok(()));
-            assert_eq!(
-                contract.set_address(name.clone(), default_accounts.bob),
-                Ok(())
-            );
-            assert_eq!(contract.get_owner(name.clone()), default_accounts.bob);
-            assert_eq!(contract.get_address(name.clone()), default_accounts.bob);
-            assert_eq!(contract.release(name.clone()), Ok(()));
-            assert_eq!(contract.get_owner(name.clone()), Default::default());
-            assert_eq!(contract.get_address(name.clone()), Default::default());
-        }
+        assert_eq!(contract.release(name.clone()), Ok(()));
+        assert_eq!(contract.get_owner(name.clone()), Default::default());
+        assert_eq!(contract.get_address(name.clone()), Default::default());
+        assert_eq!(
+            contract.get_names_of_address(default_accounts.alice),
+            Some(Vec::from([]))
+        );
 
-        #[ink::test]
-        fn set_address_works() {
-            let accounts = default_accounts();
-            let name = String::from("test");
+        /* Another account can register again*/
+        set_next_caller(default_accounts.bob);
+        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(
+            contract.set_address(name.clone(), default_accounts.bob),
+            Ok(())
+        );
+        assert_eq!(contract.get_owner(name.clone()), default_accounts.bob);
+        assert_eq!(contract.get_address(name.clone()), default_accounts.bob);
+        assert_eq!(contract.release(name.clone()), Ok(()));
+        assert_eq!(contract.get_owner(name.clone()), Default::default());
+        assert_eq!(contract.get_address(name.clone()), Default::default());
+    }
 
-            set_next_caller(accounts.alice);
+    #[ink::test]
+    fn set_address_works() {
+        let accounts = default_accounts();
+        let name = String::from("test");
 
-            let mut contract = DomainNameService::new(None);
-            assert_eq!(contract.register(name.clone()), Ok(()));
+        set_next_caller(accounts.alice);
 
-            // Caller is not owner, `set_address` should fail.
-            set_next_caller(accounts.bob);
-            assert_eq!(
-                contract.set_address(name.clone(), accounts.bob),
-                Err(CallerIsNotOwner)
-            );
+        let mut contract = DomainNameService::new(None);
+        assert_eq!(contract.register(name.clone()), Ok(()));
 
-            // Caller is owner, set_address will be successful
-            set_next_caller(accounts.alice);
-            assert_eq!(contract.set_address(name.clone(), accounts.bob), Ok(()));
-            assert_eq!(contract.get_address(name.clone()), accounts.bob);
-        }
+        // Caller is not controller, `set_address` should fail.
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            contract.set_address(name.clone(), accounts.bob),
+            Err(CallerIsNotController)
+        );
 
-        #[ink::test]
-        fn transfer_works() {
-            let accounts = default_accounts();
-            let name = String::from("test");
+        // Caller is controller, set_address will be successful
+        set_next_caller(accounts.alice);
+        assert_eq!(contract.set_address(name.clone(), accounts.bob), Ok(()));
+        assert_eq!(contract.get_address(name.clone()), accounts.bob);
+    }
 
-            set_next_caller(accounts.alice);
+    #[ink::test]
+    fn transfer_works() {
+        let accounts = default_accounts();
+        let name = String::from("test");
 
-            let mut contract = DomainNameService::new(None);
-            assert_eq!(contract.register(name.clone()), Ok(()));
+        set_next_caller(accounts.alice);
 
-            // Test transfer of owner.
-            assert_eq!(contract.transfer(name.clone(), accounts.bob), Ok(()));
+        let mut contract = DomainNameService::new(None);
+        assert_eq!(contract.register(name.clone()), Ok(()));
 
-            assert_eq!(
-                contract.get_names_of_address(accounts.alice),
-                Some(Vec::from([]))
-            );
-            assert_eq!(
-                contract.get_names_of_address(accounts.bob),
-                Some(Vec::from([name.clone()]))
-            );
+        // Test transfer of owner.
+        assert_eq!(contract.transfer(name.clone(), accounts.bob), Ok(()));
 
-            // Owner is bob, alice `set_address` should fail.
-            assert_eq!(
-                contract.set_address(name.clone(), accounts.bob),
-                Err(CallerIsNotOwner)
-            );
+        assert_eq!(
+            contract.get_names_of_address(accounts.alice),
+            Some(Vec::from([]))
+        );
+        assert_eq!(
+            contract.get_names_of_address(accounts.bob),
+            Some(Vec::from([name.clone()]))
+        );
 
-            set_next_caller(accounts.bob);
-            // Now owner is bob, `set_address` should be successful.
-            assert_eq!(contract.set_address(name.clone(), accounts.bob), Ok(()));
-            assert_eq!(contract.get_address(name.clone()), accounts.bob);
-        }
+        contract.set_controller(name.clone(), accounts.bob).unwrap();
+        // Controller is bob, alice `set_address` should fail.
+        assert_eq!(
+            contract.set_address(name.clone(), accounts.bob),
+            Err(CallerIsNotController)
+        );
 
-        #[ink::test]
-        fn additional_data_works() {
-            let accounts = default_accounts();
-            let key = String::from("twitter");
-            let value = String::from("@test");
-            let records = Vec::from([(key.clone(), value.clone())]);
+        set_next_caller(accounts.bob);
+        // Now owner is bob, `set_address` should be successful.
+        assert_eq!(contract.set_address(name.clone(), accounts.bob), Ok(()));
+        assert_eq!(contract.get_address(name.clone()), accounts.bob);
+    }
 
-            let domain_name = "test".to_string();
+    #[ink::test]
+    fn additional_data_works() {
+        let accounts = default_accounts();
+        let key = String::from("twitter");
+        let value = String::from("@test");
+        let records = Vec::from([(key.clone(), value.clone())]);
 
-            set_next_caller(accounts.alice);
-            let mut contract = DomainNameService::new(None);
-            assert_eq!(contract.register(domain_name.clone()), Ok(()));
+        let domain_name = "test".to_string();
 
-            assert_eq!(
-                contract.set_all_records(domain_name.clone(), records.clone()),
-                Ok(())
-            );
-            assert_eq!(
-                contract
-                    .get_record(domain_name.clone(), key.clone())
-                    .unwrap(),
-                value.clone()
-            );
+        set_next_caller(accounts.alice);
+        let mut contract = DomainNameService::new(None);
+        assert_eq!(contract.register(domain_name.clone()), Ok(()));
 
-            /* Confirm idempotency */
-            assert_eq!(
-                contract.set_all_records(domain_name.clone(), records.clone()),
-                Ok(())
-            );
-            assert_eq!(
-                contract
-                    .get_record(domain_name.clone(), key.clone())
-                    .unwrap(),
-                value.clone()
-            );
+        assert_eq!(
+            contract.set_all_records(domain_name.clone(), records.clone()),
+            Ok(())
+        );
+        assert_eq!(
+            contract
+                .get_record(domain_name.clone(), key.clone())
+                .unwrap(),
+            value.clone()
+        );
 
-            /* Confirm overwriting */
-            assert_eq!(
-                contract.set_all_records(
-                    domain_name.clone(),
-                    Vec::from([("twitter".to_string(), "@newtest".to_string())]),
-                ),
-                Ok(())
-            );
-            assert_eq!(
-                contract.get_all_records(domain_name.clone()).unwrap(),
-                Vec::from([("twitter".to_string(), "@newtest".to_string())])
-            );
-        }
+        /* Confirm idempotency */
+        assert_eq!(
+            contract.set_all_records(domain_name.clone(), records.clone()),
+            Ok(())
+        );
+        assert_eq!(
+            contract
+                .get_record(domain_name.clone(), key.clone())
+                .unwrap(),
+            value.clone()
+        );
+
+        /* Confirm overwriting */
+        assert_eq!(
+            contract.set_all_records(
+                domain_name.clone(),
+                Vec::from([("twitter".to_string(), "@newtest".to_string())]),
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            contract.get_all_records(domain_name.clone()).unwrap(),
+            Vec::from([("twitter".to_string(), "@newtest".to_string())])
+        );
     }
 }
