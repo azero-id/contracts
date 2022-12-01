@@ -8,6 +8,7 @@ use ink::env;
 mod azd_registry {
     use alloc::string::String;
     use alloc::vec::Vec;
+    use core::num::FpCategory::Infinite;
     use core::result::*;
 
     use crate::azd_registry::Error::{
@@ -76,8 +77,6 @@ mod azd_registry {
         name_to_owner: Mapping<String, ink::primitives::AccountId>,
         /// The default address.
         default_address: ink::primitives::AccountId,
-        /// Fee to pay for domain registration
-        fee: Balance,
         /// Owner of the contract
         /// can withdraw funds
         owner: ink::primitives::AccountId,
@@ -112,7 +111,7 @@ mod azd_registry {
     impl DomainNameService {
         /// Creates a new AZNS contract.
         #[ink(constructor)]
-        pub fn new(fee: Option<Balance>) -> Self {
+        pub fn new() -> Self {
             let caller = Self::env().caller();
 
             Self {
@@ -120,13 +119,16 @@ mod azd_registry {
                 name_to_address: Mapping::default(),
                 name_to_owner: Mapping::default(),
                 default_address: Default::default(),
-                fee: match fee {
-                    Some(fee) => fee,
-                    None => Default::default(),
-                },
                 owner: caller,
                 owner_to_names: Default::default(),
                 additional_info: Default::default(),
+            }
+        }
+
+        fn get_domain_price(&self, domain: &str) -> u128 {
+            match domain.len() {
+                4 => 160,
+                _ => 5,
             }
         }
 
@@ -164,7 +166,7 @@ mod azd_registry {
 
             /* Make sure the register is paid for */
             let _transferred = Self::env().transferred_value();
-            if _transferred < self.fee {
+            if _transferred < self.get_domain_price(&name) {
                 return Err(Error::FeeNotPaid);
             }
 
@@ -437,13 +439,16 @@ mod tests {
         let name = String::from("test");
 
         set_next_caller(default_accounts.alice);
-        let mut contract = DomainNameService::new(None);
+        let mut contract = DomainNameService::new();
 
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(
             contract.get_names_of_address(default_accounts.alice),
             Some(Vec::from([name.clone()]))
         );
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(
             contract.register(name.clone()),
             Err(Error::NameAlreadyExists)
@@ -456,19 +461,19 @@ mod tests {
         let name = String::from("test");
 
         set_next_caller(default_accounts.alice);
-        let mut contract = DomainNameService::new(Some(50));
+        let mut contract = DomainNameService::new();
 
         let acc_balance_before_transfer: Balance =
             ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
                 .unwrap();
-        ink::env::test::set_value_transferred::<DefaultEnvironment>(50 ^ 12);
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Ok(()));
-        assert_eq!(contract.withdraw(50 ^ 12), Ok(()));
+        assert_eq!(contract.withdraw(160 ^ 12), Ok(()));
         let acc_balance_after_withdraw: Balance =
             ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
                 .unwrap();
         assert_eq!(
-            acc_balance_before_transfer + 50 ^ 12,
+            acc_balance_before_transfer + 160 ^ 12,
             acc_balance_after_withdraw
         );
     }
@@ -479,16 +484,16 @@ mod tests {
         let name = String::from("test");
 
         set_next_caller(default_accounts.alice);
-        let mut contract = DomainNameService::new(Some(50));
+        let mut contract = DomainNameService::new();
 
         let acc_balance_before_transfer: Balance =
             ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
                 .unwrap();
-        ink::env::test::set_value_transferred::<DefaultEnvironment>(50 ^ 12);
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Ok(()));
 
         set_next_caller(default_accounts.bob);
-        assert_eq!(contract.withdraw(50 ^ 12), Err(CallerIsNotOwner));
+        assert_eq!(contract.withdraw(160 ^ 12), Err(CallerIsNotOwner));
     }
 
     #[ink::test]
@@ -498,9 +503,11 @@ mod tests {
         let name2 = String::from("test2");
 
         set_next_caller(default_accounts.alice);
-        let mut contract = DomainNameService::new(None);
+        let mut contract = DomainNameService::new();
 
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name2.clone()), Ok(()));
         assert!(contract
             .get_names_of_address(default_accounts.alice)
@@ -518,8 +525,9 @@ mod tests {
         let name = String::from("");
 
         set_next_caller(default_accounts.alice);
-        let mut contract = DomainNameService::new(None);
+        let mut contract = DomainNameService::new();
 
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Err(Error::NameEmpty));
     }
 
@@ -529,9 +537,9 @@ mod tests {
         let name = String::from("test");
 
         set_next_caller(default_accounts.alice);
-        let mut contract = DomainNameService::new(Some(50 ^ 12));
+        let mut contract = DomainNameService::new();
 
-        set_value_transferred::<DefaultEnvironment>(50 ^ 12);
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Ok(()));
         assert_eq!(contract.register(name), Err(Error::NameAlreadyExists));
     }
@@ -542,7 +550,7 @@ mod tests {
         let name = String::from("test");
 
         set_next_caller(default_accounts.alice);
-        let mut contract = DomainNameService::new(Some(50 ^ 12));
+        let mut contract = DomainNameService::new();
 
         assert_eq!(contract.register(name), Err(Error::FeeNotPaid));
     }
@@ -553,8 +561,9 @@ mod tests {
         let name = String::from("test");
 
         set_next_caller(default_accounts.alice);
-        let mut contract = DomainNameService::new(None);
+        let mut contract = DomainNameService::new();
 
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Ok(()));
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.alice),
@@ -577,6 +586,7 @@ mod tests {
 
         /* Another account can register again*/
         set_next_caller(default_accounts.bob);
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Ok(()));
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.bob),
@@ -595,7 +605,8 @@ mod tests {
 
         set_next_caller(accounts.alice);
 
-        let mut contract = DomainNameService::new(None);
+        let mut contract = DomainNameService::new();
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         contract.register(name.clone()).unwrap();
 
         // Caller is not controller, `set_address` should fail.
@@ -633,7 +644,8 @@ mod tests {
 
         set_next_caller(accounts.alice);
 
-        let mut contract = DomainNameService::new(None);
+        let mut contract = DomainNameService::new();
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Ok(()));
 
         // Caller is not controller, `set_address` should fail.
@@ -656,7 +668,8 @@ mod tests {
 
         set_next_caller(accounts.alice);
 
-        let mut contract = DomainNameService::new(None);
+        let mut contract = DomainNameService::new();
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Ok(()));
 
         // Test transfer of owner.
@@ -694,7 +707,9 @@ mod tests {
         let domain_name = "test".to_string();
 
         set_next_caller(accounts.alice);
-        let mut contract = DomainNameService::new(None);
+        let mut contract = DomainNameService::new();
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(domain_name.clone()), Ok(()));
 
         assert_eq!(
