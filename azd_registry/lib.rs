@@ -588,6 +588,43 @@ mod tests {
         assert_eq!(contract.get_owner(name.clone()), Default::default());
         assert_eq!(contract.get_address(name.clone()), Default::default());
     }
+    #[ink::test]
+    fn controller_separation_works() {
+        let accounts = default_accounts();
+        let name = String::from("test");
+
+        set_next_caller(accounts.alice);
+
+        let mut contract = DomainNameService::new(None);
+        contract.register(name.clone()).unwrap();
+
+        // Caller is not controller, `set_address` should fail.
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            contract.set_address(name.clone(), accounts.bob),
+            Err(CallerIsNotController)
+        );
+
+        /* Caller is not controller, `set_all_records` should fail */
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            contract.set_all_records(
+                name.clone(),
+                Vec::from([("twitter".to_string(), "@newtest".to_string())])
+            ),
+            Err(CallerIsNotController)
+        );
+
+        // Caller is controller, `set_all_records` should pass
+        set_next_caller(accounts.alice);
+        assert_eq!(
+            contract.set_all_records(
+                name.clone(),
+                Vec::from([("twitter".to_string(), "@newtest".to_string())])
+            ),
+            Ok(())
+        );
+    }
 
     #[ink::test]
     fn set_address_works() {
