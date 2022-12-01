@@ -2,7 +2,14 @@
 
 extern crate alloc;
 
+use crate::azd_registry::{DomainNameService, Register, Release, SetAddress, Transfer};
+use crate::util::{get_domain_price, is_name_allowed};
+use alloc::string::String;
+use alloc::vec::Vec;
 use ink::env;
+use ink::storage::Mapping;
+
+mod util;
 
 #[ink::contract]
 mod azd_registry {
@@ -15,6 +22,7 @@ mod azd_registry {
         CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
         WithdrawFailed,
     };
+    use crate::util::{get_domain_price, is_name_allowed};
     use ink::env;
     use ink::storage::Mapping;
 
@@ -92,6 +100,8 @@ mod azd_registry {
     pub enum Error {
         /// Returned if the name already exists upon registration.
         NameAlreadyExists,
+        /// Name is (currently) now allowed
+        NameNotAllowed,
         /// Returned if caller is not owner while required to.
         CallerIsNotOwner,
         /// This call requires the caller to be a controller of the domain
@@ -122,13 +132,6 @@ mod azd_registry {
                 owner: caller,
                 owner_to_names: Default::default(),
                 additional_info: Default::default(),
-            }
-        }
-
-        fn get_domain_price(&self, domain: &str) -> u128 {
-            match domain.len() {
-                4 => 160,
-                _ => 5,
             }
         }
 
@@ -164,9 +167,14 @@ mod azd_registry {
                 return Err(Error::NameEmpty);
             }
 
+            /* Name must be legal */
+            if !is_name_allowed(&name) {
+                return Err(Error::NameNotAllowed);
+            }
+
             /* Make sure the register is paid for */
             let _transferred = Self::env().transferred_value();
-            if _transferred < self.get_domain_price(&name) {
+            if _transferred < get_domain_price(&name) {
                 return Err(Error::FeeNotPaid);
             }
 
