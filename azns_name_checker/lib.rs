@@ -9,7 +9,8 @@ mod azns_name_checker {
     use crate::azns_name_checker::Error::{
         NameContainsDisallowedCharacters, NameTooLong, NameTooShort,
     };
-    use alloc::vec::Vec;
+    use ink::storage::Mapping;
+    use alloc::string::String;
 
     type Min = usize;
     type Max = usize;
@@ -18,7 +19,7 @@ mod azns_name_checker {
 
     #[ink(storage)]
     pub struct NameChecker {
-        allowed_unicode_ranges: Vec<(LowerBound, UpperBound)>,
+        allowed_unicode_ranges: Mapping<LowerBound, UpperBound>,
         allowed_length: (Min, Max),
     }
 
@@ -38,13 +39,13 @@ mod azns_name_checker {
         pub fn new() -> Self {}
 
         #[ink(message)]
-        pub fn is_name_allowed(&self, domain: &str) -> Result<bool> {
+        pub fn is_name_allowed(&self, domain: String) -> Result<bool> {
             /* Check length */
             let min = self.allowed_length.0;
             let max = self.allowed_length.1;
             match domain.len() {
                 min..=max => true,
-                0..min => Err(NameTooShort),
+                0..=min => Err(NameTooShort),
                 _ => Err(NameTooLong),
             }
 
