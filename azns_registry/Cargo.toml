@@ -24,6 +24,7 @@ std = [
     "ink/std",
     "scale/std",
     "scale-info/std",
+    "azns_name_checker/std",
 ]
 ink-as-dependency = []
 

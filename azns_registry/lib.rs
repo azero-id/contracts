@@ -2,30 +2,20 @@
 
 extern crate alloc;
 
-use crate::azns_registry::{DomainNameService, Register, Release, SetAddress, Transfer};
-use crate::util::{get_domain_price, is_name_allowed};
-use alloc::string::String;
-use alloc::vec::Vec;
-use ink::env;
-use ink::storage::Mapping;
-
-mod azns_name_checker;
 mod util;
 
 #[ink::contract]
 mod azns_registry {
-    use alloc::string::String;
-    use alloc::vec::Vec;
-    use core::num::FpCategory::Infinite;
-    use core::result::*;
-
     use crate::azns_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
         WithdrawFailed,
     };
-    use crate::util::{get_domain_price, is_name_allowed};
-    use ink::env;
+    use crate::util::get_domain_price;
+    use ink::prelude::string::String;
+    use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
+
+    use azns_name_checker::NameCheckerRef;
 
     // use crate::azns_registry::Error::{
     //     CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
@@ -78,6 +68,7 @@ mod azns_registry {
 
     #[ink(storage)]
     pub struct DomainNameService {
+        name_checker: NameCheckerRef,
         /// A mapping to set a controller for each address
         name_to_controller: Mapping<String, ink::primitives::AccountId>,
         /// A Stringmap to store all name to addresses mapping.
@@ -92,7 +83,6 @@ mod azns_registry {
         /// All names of an address
         owner_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
         additional_info: Mapping<String, Vec<(String, String)>>,
-        // TODO: replace Vector with Mapping
     }
 
     /// Errors that can occur upon calling this contract.
@@ -122,15 +112,26 @@ mod azns_registry {
     impl DomainNameService {
         /// Creates a new AZNS contract.
         #[ink(constructor)]
-        pub fn new() -> Self {
+        pub fn new(name_checker_hash: Hash, version: u32) -> Self {
             let caller = Self::env().caller();
 
+            // Initializing NameChecker
+            let total_balance = Self::env().balance();
+            let salt = version.to_le_bytes();
+            let name_checker = NameCheckerRef::new()
+                .endowment(total_balance / 4) // TODO why /4?
+                .code_hash(name_checker_hash)
+                .salt_bytes(salt)
+                .instantiate()
+                .expect("failed at instantiating the `NameCheckerRef` contract");
+
             Self {
+                owner: caller,
+                name_checker: name_checker,
                 name_to_controller: Mapping::default(),
                 name_to_address: Mapping::default(),
                 name_to_owner: Mapping::default(),
                 default_address: Default::default(),
-                owner: caller,
                 owner_to_names: Default::default(),
                 additional_info: Default::default(),
             }
@@ -169,9 +170,10 @@ mod azns_registry {
             }
 
             /* Name must be legal */
-            if !is_name_allowed(&name) {
-                return Err(Error::NameNotAllowed);
-            }
+            match self.name_checker.is_name_allowed(name.clone()) {
+                Ok(_) => (),
+                Err(_) => return Err(Error::NameNotAllowed),
+            };
 
             /* Make sure the register is paid for */
             let _transferred = Self::env().transferred_value();
