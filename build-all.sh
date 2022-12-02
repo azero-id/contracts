@@ -1,8 +1,4 @@
-
-
-#!/usr/bin/env bash
-
-set -eu
+#!/usr/bin/env bash -eu
 
 cargo +stable contract build --optimization-passes=0 --release --manifest-path azns_name_checker/Cargo.toml
 cargo +stable contract build --optimization-passes=0 --release --manifest-path azns_registry/Cargo.toml
