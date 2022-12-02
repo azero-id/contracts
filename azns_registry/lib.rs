@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use crate::azd_registry::{DomainNameService, Register, Release, SetAddress, Transfer};
+use crate::azns_registry::{DomainNameService, Register, Release, SetAddress, Transfer};
 use crate::util::{get_domain_price, is_name_allowed};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -13,13 +13,13 @@ mod name_checker;
 mod util;
 
 #[ink::contract]
-mod azd_registry {
+mod azns_registry {
     use alloc::string::String;
     use alloc::vec::Vec;
     use core::num::FpCategory::Infinite;
     use core::result::*;
 
-    use crate::azd_registry::Error::{
+    use crate::azns_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
         WithdrawFailed,
     };
@@ -27,7 +27,7 @@ mod azd_registry {
     use ink::env;
     use ink::storage::Mapping;
 
-    // use crate::azd_registry::Error::{
+    // use crate::azns_registry::Error::{
     //     CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
     //     WithdrawFailed,
     // };
@@ -428,8 +428,8 @@ mod tests {
 
     type Balance = u128;
 
-    use crate::azd_registry::Error::{CallerIsNotController, CallerIsNotOwner};
-    use crate::azd_registry::{DomainNameService, Error};
+    use crate::azns_registry::Error::{CallerIsNotController, CallerIsNotOwner};
+    use crate::azns_registry::{DomainNameService, Error};
 
     use super::*;
 

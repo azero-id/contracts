@@ -18,12 +18,12 @@ Wip is accessible under [docs.azero.domains](https://docs.azero.domains) and hos
 # Build all contracts
 ./build-all.sh
 # Build single contract
-cargo +nightly contract build --manifest-path azd_registry/Cargo.toml
+cargo +nightly contract build --manifest-path azns_registry/Cargo.toml
 
 # Run all tests
 ./test-all.sh
 # Run tests for single contract
-cargo +nightly contract test --manifest-path azd_registry/Cargo.toml
+cargo +nightly contract test --manifest-path azns_registry/Cargo.toml
 ```
 
 You can upload the contracts using [Contracts UI](https://contracts-ui.substrate.io/).

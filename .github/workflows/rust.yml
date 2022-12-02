@@ -13,7 +13,7 @@ jobs:
   build:
     defaults:
           run:
-            working-directory: ./azd_registry
+            working-directory: ./azns_registry
     runs-on: ubuntu-latest
 
     steps:

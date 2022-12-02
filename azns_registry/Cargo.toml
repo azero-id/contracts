@@ -1,7 +1,7 @@
 [package]
-name = "azd_registry"
+name = "azns_registry"
 version = "0.0.2"
-authors = ["Azero Domains Team <hello@azero.domains>", "Parity Technologies <admin@parity.io>"]
+authors = ["AZERO Domains <hello@azero.domains>"]
 edition = "2021"
 publish = false
 
@@ -12,7 +12,7 @@ scale-info = { version = "2.3.0", default-features = false, features = ["derive"
 #openbrush = { version = "2.2.0", default-features = false, features = ["psp34"] }
 
 [lib]
-name = "azd_registry"
+name = "azns_registry"
 path = "lib.rs"
 crate-type = ["cdylib"]
 

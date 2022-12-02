@@ -1,1 +1,1 @@
-cargo +stable contract build --optimization-passes=0 --release --manifest-path azd_registry/Cargo.toml
+cargo +stable contract build --optimization-passes=0 --release --manifest-path azns_registry/Cargo.toml
