@@ -1,9 +1,14 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+pub use self::azns_name_checker::{NameChecker, NameCheckerRef};
+
+extern crate alloc;
+
 #[ink::contract]
-mod name_checker {
-    use crate::name_checker::name_checker::Error::{
+mod azns_name_checker {
+    use crate::azns_name_checker::Error::{
         NameContainsDisallowedCharacters, NameTooLong, NameTooShort,
     };
-    use alloc::string::String;
     use alloc::vec::Vec;
 
     type Min = usize;
@@ -29,6 +34,9 @@ mod name_checker {
     }
 
     impl NameChecker {
+        #[ink(constructor)]
+        pub fn new() -> Self {}
+
         #[ink(message)]
         pub fn is_name_allowed(&self, domain: &str) -> Result<bool> {
             /* Check length */

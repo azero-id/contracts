@@ -1,6 +1,6 @@
 [package]
-name = "azns_registry"
-version = "0.0.2"
+name = "azns_name_checker"
+version = "0.0.1"
 authors = ["AZERO Domains <hello@azero.domains>"]
 edition = "2021"
 publish = false
@@ -8,15 +8,16 @@ publish = false
 [dependencies]
 ink = { version = "4.0.0-beta", default-features = false }
 
-azns_name_checker = { path = "../azns_name_checker", default-features = false, features = ["ink-as-dependency"] }
-
 scale = { package = "parity-scale-codec", version = "3", default-features = false, features = ["derive"] }
 scale-info = { version = "2.3", default-features = false, features = ["derive"], optional = true }
 
 [lib]
-name = "azns_registry"
+name = "azns_name_checker"
 path = "lib.rs"
-crate-type = ["cdylib"]
+crate-type = [
+    "cdylib",
+    "rlib",
+]
 
 [features]
 default = ["std"]
