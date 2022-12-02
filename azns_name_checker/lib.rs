@@ -9,17 +9,20 @@ mod azns_name_checker {
     use crate::azns_name_checker::Error::{
         NameContainsDisallowedCharacters, NameTooLong, NameTooShort,
     };
+    // use alloc::string::String;
+    use ink::prelude::string::String;
+    use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
-    use alloc::string::String;
 
-    type Min = usize;
-    type Max = usize;
-    type LowerBound = char;
-    type UpperBound = char;
+    type Min = u64;
+    type Max = u64;
+    type LowerBound = String;
+    type UpperBound = String;
 
     #[ink(storage)]
     pub struct NameChecker {
-        allowed_unicode_ranges: Mapping<LowerBound, UpperBound>,
+        index: u64,
+        allowed_unicode_ranges: Mapping<String, Vec<(LowerBound, UpperBound)>>,
         allowed_length: (Min, Max),
     }
 
@@ -36,33 +39,42 @@ mod azns_name_checker {
 
     impl NameChecker {
         #[ink(constructor)]
-        pub fn new() -> Self {}
+        pub fn new() -> Self {
+            Self {
+                index: 0,
+                allowed_unicode_ranges: Mapping::default(),
+                allowed_length: (0, 0),
+            }
+        }
 
         #[ink(message)]
         pub fn is_name_allowed(&self, domain: String) -> Result<bool> {
             /* Check length */
             let min = self.allowed_length.0;
             let max = self.allowed_length.1;
-            match domain.len() {
-                min..=max => true,
+            let length_ok = match domain.len() as u64 {
+                min..=max => Ok(true),
                 0..=min => Err(NameTooShort),
                 _ => Err(NameTooLong),
-            }
+            };
 
             /* Allowed Unicode Ranges only */
-            let allowed = domain.chars().all(|char| {
-                self.allowed_unicode_ranges
-                    .iter()
-                    .map(|range| {
-                        let lower = range.0;
-                        let upper = range.1;
-                        match char {
-                            lower..=upper => true,
-                            _ => false,
-                        }
-                    })
-                    .collect()
-            });
+            // TODO Replace with iterator
+            // let allowed = domain.chars().all(|char| {
+            // self.allowed_unicode_ranges
+            //     .iter()
+            //     .map(|range| {
+            //         let lower = range.0;
+            //         let upper = range.1;
+            //         match char {
+            //             lower..=upper => true,
+            //             _ => false,
+            //         }
+            //     })
+            //     .collect()
+            // });
+
+            let allowed = true;
 
             match allowed {
                 true => Ok(true),
