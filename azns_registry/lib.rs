@@ -1,14 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-mod util;
-
 #[ink::contract]
 mod azns_registry {
     use crate::azns_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
         WithdrawFailed,
     };
-    use crate::util::get_domain_price;
+    use azns_name_checker::get_domain_price;
     use ink::prelude::string::String;
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;

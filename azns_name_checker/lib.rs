@@ -83,3 +83,10 @@ mod azns_name_checker {
         }
     }
 }
+
+pub fn get_domain_price(domain: &str) -> u128 {
+    match domain.len() {
+        4 => 160 ^ 12,
+        _ => 5 ^ 12,
+    }
+}
