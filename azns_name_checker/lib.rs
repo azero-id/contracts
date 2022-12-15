@@ -52,11 +52,11 @@ mod azns_name_checker {
             /* Check length */
             let min = self.allowed_length.0;
             let max = self.allowed_length.1;
-            let length_ok = match domain.len() as u64 {
-                min..=max => Ok(true),
-                0..=min => Err(NameTooShort),
-                _ => Err(NameTooLong),
-            };
+            // let length_ok = match domain.len() as u64 {
+            //     min..=max => Ok(true),
+            //     0..=min => Err(NameTooShort),
+            //     _ => Err(NameTooLong),
+            // };
 
             /* Allowed Unicode Ranges only */
             // TODO Replace with iterator
