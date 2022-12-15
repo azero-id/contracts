@@ -11,7 +11,6 @@ mod azns_registry {
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
 
-    use azns_name_checker::NameChecker;
     use azns_name_checker::NameCheckerRef;
 
     pub type Result<T> = core::result::Result<T, Error>;
@@ -432,14 +431,12 @@ mod tests {
     use ink::env::DefaultEnvironment;
 
     use ink::env::test::*;
-    use ink::primitives::Hash;
 
     type Balance = u128;
 
     use crate::azns_registry::DomainNameService;
     use crate::azns_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, FeeNotPaid, NameAlreadyExists, NameEmpty,
-        NameNotAllowed,
     };
 
     use super::*;
