@@ -1,6 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-extern crate alloc;
 mod util;
 
 #[ink::contract]
@@ -162,7 +161,11 @@ mod azns_registry {
 
         /// Register specific name with caller as owner.
         #[ink(message, payable)]
-        pub fn register(&mut self, name: String) -> Result<()> {
+        pub fn register_on_behalf_of(
+            &mut self,
+            name: String,
+            recipient: ink::primitives::AccountId,
+        ) -> Result<()> {
             /* Name cannot be empty */
             if name.is_empty() {
                 return Err(Error::NameEmpty);
@@ -181,38 +184,43 @@ mod azns_registry {
             }
 
             /* Ensure domain is not already registered */
-            let caller = Self::env().caller();
             if self.name_to_owner.contains(&name) {
                 return Err(Error::NameAlreadyExists);
             }
 
             /* Set domain owner */
-            self.name_to_owner.insert(&name, &caller);
+            self.name_to_owner.insert(&name, &recipient);
 
             /* Set domain controller */
-            self.name_to_controller.insert(&name, &caller);
+            self.name_to_controller.insert(&name, &recipient);
 
             /* Set resolved domain */
-            self.name_to_address.insert(&name, &caller);
+            self.name_to_address.insert(&name, &recipient);
 
             /* Update convenience mapping */
-            let previous_names = self.owner_to_names.get(caller);
+            let previous_names = self.owner_to_names.get(recipient);
             if let Some(names) = previous_names {
                 let mut new_names = names.clone();
                 new_names.push(name.clone());
-                self.owner_to_names.insert(caller, &new_names);
+                self.owner_to_names.insert(recipient, &new_names);
             } else {
                 self.owner_to_names
-                    .insert(caller, &Vec::from([name.clone()]));
+                    .insert(recipient, &Vec::from([name.clone()]));
             }
 
             /* Emit register event */
             Self::env().emit_event(Register {
                 name: name.clone(),
-                from: caller,
+                from: recipient,
             });
 
             Ok(())
+        }
+
+        /// Register specific name with caller as owner.
+        #[ink(message, payable)]
+        pub fn register(&mut self, name: String) -> Result<()> {
+            self.register_on_behalf_of(name, Self::env().caller())
         }
 
         /// Release domain from registration.
@@ -420,6 +428,7 @@ mod azns_registry {
 mod tests {
     use alloc::string::{String, ToString};
     use alloc::vec::Vec;
+    use core::fmt::Error;
 
     use ink::env::test::DefaultAccounts;
     use ink::env::DefaultEnvironment;
