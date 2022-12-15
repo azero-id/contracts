@@ -15,11 +15,6 @@ mod azns_registry {
 
     use azns_name_checker::NameCheckerRef;
 
-    // use crate::azns_registry::Error::{
-    //     CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
-    //     WithdrawFailed,
-    // };
-
     pub type Result<T> = core::result::Result<T, Error>;
 
     /// Emitted whenever a new name is registered.
@@ -125,7 +120,7 @@ mod azns_registry {
 
             Self {
                 owner: caller,
-                name_checker: name_checker,
+                name_checker,
                 name_to_controller: Mapping::default(),
                 name_to_address: Mapping::default(),
                 name_to_owner: Mapping::default(),
@@ -200,7 +195,7 @@ mod azns_registry {
             /* Update convenience mapping */
             let previous_names = self.owner_to_names.get(recipient);
             if let Some(names) = previous_names {
-                let mut new_names = names.clone();
+                let mut new_names = names;
                 new_names.push(name.clone());
                 self.owner_to_names.insert(recipient, &new_names);
             } else {
@@ -238,10 +233,7 @@ mod azns_registry {
             self.name_to_controller.remove(&name);
             self.additional_info.remove(&name);
 
-            Self::env().emit_event(Release {
-                name: name.clone(),
-                from: caller,
-            });
+            Self::env().emit_event(Release { name, from: caller });
 
             Ok(())
         }
@@ -290,7 +282,7 @@ mod azns_registry {
             self.remove_name_from_owner(caller, name.clone());
             let previous_names = self.owner_to_names.get(to);
             if let Some(names) = previous_names {
-                let mut new_names = names.clone();
+                let mut new_names = names;
                 new_names.push(name.clone());
                 self.owner_to_names.insert(to, &new_names);
             } else {
@@ -341,15 +333,13 @@ mod azns_registry {
 
         pub fn get_controller_or_default(&self, name: &String) -> ink::primitives::AccountId {
             self.name_to_controller
-                .get(&name)
+                .get(name)
                 .unwrap_or(self.default_address)
         }
 
         /// Returns the owner given the String or the default address.
         fn get_owner_or_default(&self, name: &String) -> ink::primitives::AccountId {
-            self.name_to_owner
-                .get(&name)
-                .unwrap_or(self.default_address)
+            self.name_to_owner.get(name).unwrap_or(self.default_address)
         }
 
         /// Returns the address given the String or the default address.
@@ -365,13 +355,13 @@ mod azns_registry {
             &self,
             owner: ink::primitives::AccountId,
         ) -> Option<Vec<String>> {
-            return self.owner_to_names.get(owner);
+            self.owner_to_names.get(owner)
         }
 
         /// Deletes a name from owner
         fn remove_name_from_owner(&mut self, owner: ink::primitives::AccountId, name: String) {
             if let Some(old_names) = self.owner_to_names.get(owner) {
-                let mut new_names: Vec<String> = old_names.clone();
+                let mut new_names: Vec<String> = old_names;
                 new_names.retain(|prevname| prevname.clone() != name);
                 self.owner_to_names.insert(owner, &new_names);
             }
@@ -381,9 +371,7 @@ mod azns_registry {
         #[ink(message)]
         pub fn get_record(&self, name: String, key: String) -> Result<String> {
             return if let Some(info) = self.additional_info.get(name) {
-                if let Some(value) = info.iter().find(|tuple| {
-                    return tuple.0 == key;
-                }) {
+                if let Some(value) = info.iter().find(|tuple| tuple.0 == key) {
                     Ok(value.clone().1)
                 } else {
                     Err(RecordNotFound)
@@ -416,7 +404,7 @@ mod azns_registry {
         #[ink(message)]
         pub fn get_all_records(&self, name: String) -> Result<Vec<(String, String)>> {
             if let Some(info) = self.additional_info.get(name) {
-                return Ok(info);
+                Ok(info)
             } else {
                 Err(NoRecordsForAddress)
             }
@@ -424,11 +412,12 @@ mod azns_registry {
     }
 }
 
+extern crate alloc;
+
 #[cfg(test)]
 mod tests {
     use alloc::string::{String, ToString};
     use alloc::vec::Vec;
-    use core::fmt::Error;
 
     use ink::env::test::DefaultAccounts;
     use ink::env::DefaultEnvironment;
@@ -438,8 +427,11 @@ mod tests {
 
     type Balance = u128;
 
-    use crate::azns_registry::Error::{CallerIsNotController, CallerIsNotOwner};
-    use crate::azns_registry::{DomainNameService, Error};
+    use crate::azns_registry::DomainNameService;
+    use crate::azns_registry::Error::{
+        CallerIsNotController, CallerIsNotOwner, FeeNotPaid, NameAlreadyExists, NameEmpty,
+        NameNotAllowed,
+    };
 
     use super::*;
 
@@ -448,7 +440,7 @@ mod tests {
     }
 
     fn set_next_caller(caller: ink::primitives::AccountId) {
-        ink::env::test::set_caller::<DefaultEnvironment>(caller);
+        set_caller::<DefaultEnvironment>(caller);
     }
 
     fn get_test_name_service() -> DomainNameService {
@@ -471,10 +463,7 @@ mod tests {
             Some(Vec::from([name.clone()]))
         );
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(
-            contract.register(name.clone()),
-            Err(Error::NameAlreadyExists)
-        );
+        assert_eq!(contract.register(name), Err(NameAlreadyExists));
     }
 
     #[ink::test]
@@ -486,16 +475,14 @@ mod tests {
         let mut contract = get_test_name_service();
 
         let acc_balance_before_transfer: Balance =
-            ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
-                .unwrap();
-        ink::env::test::set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+            get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name), Ok(()));
         assert_eq!(contract.withdraw(160 ^ 12), Ok(()));
         let acc_balance_after_withdraw: Balance =
-            ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
-                .unwrap();
+            get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
         assert_eq!(
-            acc_balance_before_transfer + 160 ^ 12,
+            (acc_balance_before_transfer + 160) ^ 12,
             acc_balance_after_withdraw
         );
     }
@@ -508,11 +495,10 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        let acc_balance_before_transfer: Balance =
-            ink::env::test::get_account_balance::<DefaultEnvironment>(default_accounts.alice)
-                .unwrap();
-        ink::env::test::set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        let _acc_balance_before_transfer: Balance =
+            get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name), Ok(()));
 
         set_next_caller(default_accounts.bob);
         assert_eq!(contract.withdraw(160 ^ 12), Err(CallerIsNotOwner));
@@ -528,9 +514,9 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name), Ok(()));
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name2.clone()), Ok(()));
+        assert_eq!(contract.register(name2), Ok(()));
         assert!(contract
             .get_names_of_address(default_accounts.alice)
             .unwrap()
@@ -550,7 +536,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Err(Error::NameEmpty));
+        assert_eq!(contract.register(name), Err(NameEmpty));
     }
 
     #[ink::test]
@@ -562,7 +548,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Err(Error::NameNotAllowed));
+        assert_eq!(contract.register(name), Err(NameNotAllowed));
     }
 
     #[ink::test]
@@ -575,7 +561,7 @@ mod tests {
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone()), Ok(()));
-        assert_eq!(contract.register(name), Err(Error::NameAlreadyExists));
+        assert_eq!(contract.register(name), Err(NameAlreadyExists));
     }
 
     #[ink::test]
@@ -586,7 +572,7 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        assert_eq!(contract.register(name), Err(Error::FeeNotPaid));
+        assert_eq!(contract.register(name), Err(FeeNotPaid));
     }
 
     #[ink::test]
@@ -630,7 +616,7 @@ mod tests {
         assert_eq!(contract.get_address(name.clone()), default_accounts.bob);
         assert_eq!(contract.release(name.clone()), Ok(()));
         assert_eq!(contract.get_owner(name.clone()), Default::default());
-        assert_eq!(contract.get_address(name.clone()), Default::default());
+        assert_eq!(contract.get_address(name), Default::default());
     }
 
     #[ink::test]
@@ -665,7 +651,7 @@ mod tests {
         set_next_caller(accounts.alice);
         assert_eq!(
             contract.set_all_records(
-                name.clone(),
+                name,
                 Vec::from([("twitter".to_string(), "@newtest".to_string())])
             ),
             Ok(())
@@ -693,7 +679,7 @@ mod tests {
         // Caller is controller, set_address will be successful
         set_next_caller(accounts.alice);
         assert_eq!(contract.set_address(name.clone(), accounts.bob), Ok(()));
-        assert_eq!(contract.get_address(name.clone()), accounts.bob);
+        assert_eq!(contract.get_address(name), accounts.bob);
     }
 
     #[ink::test]
@@ -729,7 +715,7 @@ mod tests {
         set_next_caller(accounts.bob);
         // Now owner is bob, `set_address` should be successful.
         assert_eq!(contract.set_address(name.clone(), accounts.bob), Ok(()));
-        assert_eq!(contract.get_address(name.clone()), accounts.bob);
+        assert_eq!(contract.get_address(name), accounts.bob);
     }
 
     #[ink::test]
@@ -755,19 +741,17 @@ mod tests {
             contract
                 .get_record(domain_name.clone(), key.clone())
                 .unwrap(),
-            value.clone()
+            value
         );
 
         /* Confirm idempotency */
         assert_eq!(
-            contract.set_all_records(domain_name.clone(), records.clone()),
+            contract.set_all_records(domain_name.clone(), records),
             Ok(())
         );
         assert_eq!(
-            contract
-                .get_record(domain_name.clone(), key.clone())
-                .unwrap(),
-            value.clone()
+            contract.get_record(domain_name.clone(), key).unwrap(),
+            value
         );
 
         /* Confirm overwriting */
@@ -779,7 +763,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract.get_all_records(domain_name.clone()).unwrap(),
+            contract.get_all_records(domain_name).unwrap(),
             Vec::from([("twitter".to_string(), "@newtest".to_string())])
         );
     }
