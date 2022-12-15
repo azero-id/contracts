@@ -106,43 +106,30 @@ mod azns_registry {
     impl DomainNameService {
         /// Creates a new AZNS contract.
         #[ink(constructor)]
-        pub fn new(name_checker_hash: Hash, version: u32) -> Self {
+        pub fn new(name_checker_hash: Option<Hash>, version: Option<u32>) -> Self {
             let caller = Self::env().caller();
 
             // Initializing NameChecker
             let total_balance = Self::env().balance();
-            let salt = version.to_le_bytes();
-            let name_checker = NameCheckerRef::new()
-                .endowment(total_balance / 4) // TODO why /4?
-                .code_hash(name_checker_hash)
-                .salt_bytes(salt)
-                .instantiate()
-                .expect("failed at instantiating the `NameCheckerRef` contract");
+
+            let name_checker = match name_checker_hash {
+                Some(hash) => {
+                    let salt = version.unwrap_or(1u32).to_le_bytes();
+                    Some(
+                        NameCheckerRef::new()
+                            .endowment(total_balance / 4) // TODO why /4?
+                            .code_hash(hash)
+                            .salt_bytes(salt)
+                            .instantiate()
+                            .expect("failed at instantiating the `NameCheckerRef` contract"),
+                    )
+                }
+                None => None,
+            };
 
             Self {
                 owner: caller,
-                name_checker: Some(name_checker),
-                name_to_controller: Mapping::default(),
-                name_to_address: Mapping::default(),
-                name_to_owner: Mapping::default(),
-                default_address: Default::default(),
-                owner_to_names: Default::default(),
-                additional_info: Default::default(),
-            }
-        }
-
-        /// Creates a new AZNS contract for testing purposes
-        #[ink(constructor)]
-        pub fn test_new() -> Self {
-            let caller = Self::env().caller();
-
-            // Initializing NameChecker
-            let total_balance = Self::env().balance();
-            let salt = 4i32.to_le_bytes();
-
-            Self {
-                owner: caller,
-                name_checker: None,
+                name_checker,
                 name_to_controller: Mapping::default(),
                 name_to_address: Mapping::default(),
                 name_to_owner: Mapping::default(),
@@ -468,7 +455,7 @@ mod tests {
     }
 
     fn get_test_name_service() -> DomainNameService {
-        DomainNameService::test_new()
+        DomainNameService::new(None, None)
     }
 
     #[ink::test]
