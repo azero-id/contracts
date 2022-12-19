@@ -194,12 +194,14 @@ mod azns_registry {
         pub fn get_primary_domain(&self, address: ink::primitives::AccountId) -> Result<String> {
             /* Get the naive primary domain of the address */
             let Some(primary_domain) = self.address_to_primary_domain.get(address) else {
+                /* No primary domain set */
                 return Err(NoResolvedAddress);
             };
 
             /* Check that the primary domain actually resolves to the claimed address */
             let resolved_address = self.get_address(primary_domain.clone());
             if resolved_address != address {
+                /* Resolved address is no longer valid */
                 return Err(NoResolvedAddress);
             }
 
