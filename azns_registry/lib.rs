@@ -149,6 +149,18 @@ mod azns_registry {
             }
         }
 
+        fn get_name_including_parent(&self, name: String) -> String {
+            match self.domain_to_parent.get(name.clone()) {
+                Some(parent) => {
+                    let mut name_with_parent = name.clone();
+                    name_with_parent.push('.');
+                    name_with_parent.push_str(&parent);
+                    name_with_parent
+                },
+                None => name
+            }
+        }
+
         #[ink(message)]
         pub fn set_parent(&mut self, name: String, parent: String) -> Result<()> {
             /* Check that the parent does not already have a parent itself */
@@ -157,7 +169,7 @@ mod azns_registry {
             }
 
             self.domain_to_parent.insert(name, &parent);
-            
+
             Ok(())
         }
 
