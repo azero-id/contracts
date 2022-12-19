@@ -4,7 +4,7 @@
 mod azns_registry {
     use crate::azns_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, NoResolvedAddress,
-        RecordNotFound, WithdrawFailed,
+        RecordNotFound, WithdrawFailed, RecursiveParent
     };
     use azns_name_checker::get_domain_price;
     use ink::prelude::string::String;
@@ -73,8 +73,14 @@ mod azns_registry {
         owner: ink::primitives::AccountId,
         /// All names of an address
         owner_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
+        /// Metadata
         additional_info: Mapping<String, Vec<(String, String)>>,
+        /// Primary domain record
+        /// IMPORTANT NOTE: This mapping may be out-of-date, since we don't update it when a resolved address changes, or when a domain is withdrawn.
+        /// Only use the get_primary_domain
         address_to_primary_domain: Mapping<ink::primitives::AccountId, String>,
+        /// Tracks if a domain is a namespace
+        domain_to_parent: Mapping<String, String>,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -101,6 +107,8 @@ mod azns_registry {
         WithdrawFailed,
         /// No resolved address found
         NoResolvedAddress,
+        /// Recursive parents not allowed
+        RecursiveParent
     }
 
     impl DomainNameService {
@@ -137,7 +145,20 @@ mod azns_registry {
                 owner_to_names: Default::default(),
                 additional_info: Default::default(),
                 address_to_primary_domain: Default::default(),
+                domain_to_parent: Default::default(),
             }
+        }
+
+        #[ink(message)]
+        pub fn set_parent(&mut self, name: String, parent: String) -> Result<()> {
+            /* Check that the parent does not already have a parent itself */
+            if self.domain_to_parent.contains(parent.clone()) {
+                return Err(RecursiveParent);
+            }
+
+            self.domain_to_parent.insert(name, &parent);
+            
+            Ok(())
         }
 
         /// Transfers `value` amount of tokens to the caller.
