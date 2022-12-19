@@ -190,6 +190,22 @@ mod azns_registry {
             Ok(())
         }
 
+        #[ink(message)]
+        pub fn get_primary_domain(&self, address: ink::primitives::AccountId) -> Result<String> {
+            /* Get the naive primary domain of the address */
+            let Some(primary_domain) = self.address_to_primary_domain.get(address) else {
+                return Err(NoResolvedAddress);
+            };
+
+            /* Check that the primary domain actually resolves to the claimed address */
+            let resolved_address = self.get_address(primary_domain.clone());
+            if resolved_address != address {
+                return Err(NoResolvedAddress);
+            }
+
+            Ok(primary_domain)
+        }
+
         /// Register specific name with caller as owner.
         #[ink(message, payable)]
         pub fn register_on_behalf_of(
@@ -293,7 +309,8 @@ mod azns_registry {
             /* Check if the old resolved address had this domain set as the primary domain */
             /* If yes -> clear it */
             if let Some(old_address_exists) = old_address {
-                if let Some(primary_domain) = self.address_to_primary_domain.get(old_address_exists) {
+                if let Some(primary_domain) = self.address_to_primary_domain.get(old_address_exists)
+                {
                     if primary_domain == name {
                         self.address_to_primary_domain.remove(old_address_exists);
                     }
