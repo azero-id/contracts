@@ -504,6 +504,7 @@ mod tests {
     use crate::azns_registry::DomainNameService;
     use crate::azns_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, FeeNotPaid, NameAlreadyExists, NameEmpty,
+        NoResolvedAddress,
     };
 
     use super::*;
@@ -538,6 +539,40 @@ mod tests {
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name3.clone()), Ok(()));
+
+        /* Now alice owns three domains */
+        /* Set the primary domain for alice's address to domain 1 */
+        contract
+            .set_primary_domain(default_accounts.alice, name.clone())
+            .unwrap();
+
+        /* Now the primary domain should resolve to alice's address */
+        assert_eq!(
+            contract.get_primary_domain(default_accounts.alice),
+            Ok(name.clone())
+        );
+
+        /* Change the resolved address of the first domain to bob, invalidating the primary domain claim */
+        contract
+            .set_address(name.clone(), default_accounts.bob)
+            .unwrap();
+
+        /* Now the primary domain should not resolve to anything */
+        assert_eq!(
+            contract.get_primary_domain(default_accounts.alice),
+            Err(NoResolvedAddress)
+        );
+
+        /* Set bob's primary domain */
+
+        contract
+            .set_primary_domain(default_accounts.bob, name.clone())
+            .unwrap();
+        /* Now the primary domain should not resolve to anything */
+        assert_eq!(
+            contract.get_primary_domain(default_accounts.bob),
+            Ok(name.clone())
+        );
     }
 
     #[ink::test]
