@@ -3,8 +3,8 @@
 #[ink::contract]
 mod azns_registry {
     use crate::azns_registry::Error::{
-        CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, RecordNotFound,
-        WithdrawFailed,
+        CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, NoResolvedAddress,
+        RecordNotFound, WithdrawFailed,
     };
     use azns_name_checker::get_domain_price;
     use ink::prelude::string::String;
@@ -74,6 +74,7 @@ mod azns_registry {
         /// All names of an address
         owner_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
         additional_info: Mapping<String, Vec<(String, String)>>,
+        address_to_primary_domain: Mapping<ink::primitives::AccountId, String>,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -98,6 +99,8 @@ mod azns_registry {
         NoRecordsForAddress,
         /// Withdraw failed
         WithdrawFailed,
+        /// No resolved address found
+        NoResolvedAddress,
     }
 
     impl DomainNameService {
@@ -133,10 +136,12 @@ mod azns_registry {
                 default_address: Default::default(),
                 owner_to_names: Default::default(),
                 additional_info: Default::default(),
+                address_to_primary_domain: Default::default(),
             }
         }
 
         /// Transfers `value` amount of tokens to the caller.
+        /// Used for withdrawing funds from the main contract to the MultiSig
         ///
         /// # Errors
         ///
@@ -156,6 +161,31 @@ mod azns_registry {
             if Self::env().transfer(Self::env().caller(), value).is_err() {
                 return Err(WithdrawFailed);
             }
+
+            Ok(())
+        }
+
+        /// Set primary domain of an address (reverse record)
+        #[ink(message, payable)]
+        pub fn set_primary_domain(
+            &mut self,
+            address: ink::primitives::AccountId,
+            name: String,
+        ) -> Result<()> {
+            /* Ensure the caller controls the target name */
+            self.ensure_controller(Self::env().caller(), name.clone())?;
+
+            /* Ensure the target name resolves to something */
+            let Some(resolved) = self.name_to_address.get(name.clone()) else {
+                return Err(NoResolvedAddress);
+             };
+
+            /* Ensure the target name resolves to the address */
+            if resolved != address {
+                return Err(NoResolvedAddress);
+            }
+
+            self.address_to_primary_domain.insert(address, &name);
 
             Ok(())
         }
@@ -255,13 +285,20 @@ mod azns_registry {
         ) -> Result<()> {
             /* Ensure the caller is the controller */
             let caller = Self::env().caller();
-            let controller = self.get_controller_or_default(&name);
-            if caller != controller {
-                return Err(CallerIsNotController);
-            }
+            self.ensure_controller(caller, name.clone())?;
 
             let old_address = self.name_to_address.get(&name);
             self.name_to_address.insert(&name, &new_address);
+
+            /* Check if the old resolved address had this domain set as the primary domain */
+            /* If yes -> clear it */
+            if let Some(old_address_exists) = old_address {
+                if let Some(primary_domain) = self.address_to_primary_domain.get(old_address_exists) {
+                    if primary_domain == name {
+                        self.address_to_primary_domain.remove(old_address_exists);
+                    }
+                }
+            }
 
             Self::env().emit_event(SetAddress {
                 name,
@@ -398,10 +435,7 @@ mod azns_registry {
         ) -> Result<()> {
             /* Ensure that the caller is a controller */
             let caller: ink::primitives::AccountId = Self::env().caller();
-            let controller = self.get_controller_or_default(&name);
-            if caller != controller {
-                return Err(CallerIsNotController);
-            }
+            self.ensure_controller(caller, name.clone())?;
 
             self.additional_info.insert(name, &records);
 
@@ -415,6 +449,20 @@ mod azns_registry {
                 Ok(info)
             } else {
                 Err(NoRecordsForAddress)
+            }
+        }
+
+        fn ensure_controller(
+            &self,
+            address: ink::primitives::AccountId,
+            name: String,
+        ) -> Result<()> {
+            /* Ensure that the address is a controller of the target domain */
+            let controller = self.get_controller_or_default(&name);
+            if address != controller {
+                return Err(CallerIsNotController);
+            } else {
+                Ok(())
             }
         }
     }
@@ -451,6 +499,26 @@ mod tests {
 
     fn get_test_name_service() -> DomainNameService {
         DomainNameService::new(None, None)
+    }
+
+    #[ink::test]
+    fn set_primary_domain_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
+        let name2 = String::from("foo");
+        let name3 = String::from("bar");
+
+        set_next_caller(default_accounts.alice);
+        let mut contract = get_test_name_service();
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name.clone()), Ok(()));
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name2.clone()), Ok(()));
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name3.clone()), Ok(()));
     }
 
     #[ink::test]
