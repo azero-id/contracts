@@ -2,29 +2,50 @@
 
 #[ink::contract]
 mod merkle_verifier {
-    use rs_merkle::{algorithms::Sha256, Hasher, MerkleProof};
 
-    /// Defines the storage of your contract.
-    /// Add new fields to the below struct in order
-    /// to add new static storage fields to your contract.
+    use ink::env::hash::{CryptoHash, Keccak256};
+    use ink::prelude::vec::Vec;
+
     #[ink(storage)]
     pub struct MerkleVerifier {
-        /// Stores a single `bool` value on the storage.
-        root: String,
+        /// Stores the merkle root hash
+        root: [u8; 32],
     }
 
     impl MerkleVerifier {
-        /// Constructor that initializes the `bool` value to the given `init_value`.
         #[ink(constructor)]
-        pub fn new(root: String) -> Self {
+        pub fn new(root: [u8; 32]) -> Self {
             Self { root }
         }
 
-        /// Simply returns the current value of our `bool`.
         #[ink(message)]
-        pub fn verify_proof(&self, proof_bytes: Vec<u8>) -> bool {
-            let proof = MerkleProof::<Sha256>::try_from(proof_bytes);
-            proof.verify(self.root)
+        pub fn root(&self) -> [u8; 32] {
+            self.root
+        }
+
+        /// Verifies inclusion of leaf in the merkle tree
+        // @dev leaf - It's the hashed version of the element
+        #[ink(message)]
+        pub fn verify_proof(&self, leaf: [u8; 32], proof: Vec<[u8; 32]>) -> bool {
+            let hash = proof
+                .iter()
+                .fold(leaf, |acc, node| Self::compute_hash(&acc, &node));
+            hash == self.root
+        }
+
+        // Sorts the node and then returns their Keccak256 hash
+        fn compute_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+            // Sorted pair hashing
+            let input = if left < right {
+                [left.as_ref(), right].concat()
+            } else {
+                [right.as_ref(), left].concat()
+            };
+
+            let input = input.as_ref();
+            let mut output = [0u8; 32];
+            Keccak256::hash(input, &mut output);
+            output
         }
     }
 

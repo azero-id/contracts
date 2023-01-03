@@ -1,19 +1,14 @@
 [package]
 name = "merkle_verifier"
 version = "0.1.0"
-authors = ["[your_name] <[your_email]>"]
+authors = ["AZERO Domains <hello@azero.domains>"]
 edition = "2021"
 
 [dependencies]
-hex = "0.4.3"
-hex-literal = "0.3.4"
 ink = { version = "4.0.0-beta", default-features = false }
-rs_merkle = "1.2.0"
 
 scale = { package = "parity-scale-codec", version = "3", default-features = false, features = ["derive"] }
-scale-info = { version = "2", default-features = false, features = ["derive"], optional = true }
-sha2 = "0.10.6"
-sha3 = "0.10.6"
+scale-info = { version = "2.3", default-features = false, features = ["derive"], optional = true }
 
 [lib]
 name = "merkle_verifier"
