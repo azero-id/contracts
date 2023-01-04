@@ -656,7 +656,7 @@ mod tests {
     }
 
     fn get_test_name_service() -> DomainNameService {
-        DomainNameService::new(None, None)
+        DomainNameService::new(None, None, [0u8; 32], None)
     }
 
     #[ink::test]
@@ -670,13 +670,13 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name2.clone()), Ok(()));
+        assert_eq!(contract.register(name2.clone(), None), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name3.clone()), Ok(()));
+        assert_eq!(contract.register(name3.clone(), None), Ok(()));
 
         /* Now alice owns three domains */
         /* Set the primary domain for alice's address to domain 1 */
@@ -722,14 +722,14 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(
             contract.get_names_of_address(default_accounts.alice),
             Some(Vec::from([name.clone()]))
         );
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name), Err(NameAlreadyExists));
+        assert_eq!(contract.register(name, None), Err(NameAlreadyExists));
     }
 
     #[ink::test]
@@ -743,7 +743,7 @@ mod tests {
         let acc_balance_before_transfer: Balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name), Ok(()));
+        assert_eq!(contract.register(name, None), Ok(()));
         assert_eq!(contract.withdraw(160 ^ 12), Ok(()));
         let acc_balance_after_withdraw: Balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
@@ -764,7 +764,7 @@ mod tests {
         let _acc_balance_before_transfer: Balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name), Ok(()));
+        assert_eq!(contract.register(name, None), Ok(()));
 
         set_next_caller(default_accounts.bob);
         assert_eq!(contract.withdraw(160 ^ 12), Err(CallerIsNotOwner));
@@ -780,9 +780,9 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name), Ok(()));
+        assert_eq!(contract.register(name, None), Ok(()));
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name2), Ok(()));
+        assert_eq!(contract.register(name2, None), Ok(()));
         assert!(contract
             .get_names_of_address(default_accounts.alice)
             .unwrap()
@@ -802,7 +802,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name), Err(NameEmpty));
+        assert_eq!(contract.register(name, None), Err(NameEmpty));
     }
 
     // TODO: enable this test once we get cross-contract testing working
@@ -815,7 +815,7 @@ mod tests {
     //     let mut contract = get_test_name_service();
     //
     //     set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-    //     assert_eq!(contract.register(name), Err(NameNotAllowed));
+    //     assert_eq!(contract.register(name, None), Err(NameNotAllowed));
     // }
 
     #[ink::test]
@@ -827,8 +827,8 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
-        assert_eq!(contract.register(name), Err(NameAlreadyExists));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
+        assert_eq!(contract.register(name, None), Err(NameAlreadyExists));
     }
 
     #[ink::test]
@@ -839,7 +839,7 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        assert_eq!(contract.register(name), Err(FeeNotPaid));
+        assert_eq!(contract.register(name, None), Err(FeeNotPaid));
     }
 
     #[ink::test]
@@ -851,7 +851,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.alice),
             Ok(())
@@ -874,7 +874,7 @@ mod tests {
         /* Another account can register again*/
         set_next_caller(default_accounts.bob);
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.bob),
             Ok(())
@@ -895,7 +895,7 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        contract.register(name.clone()).unwrap();
+        contract.register(name.clone(), None).unwrap();
 
         // Caller is not controller, `set_address` should fail.
         set_next_caller(accounts.bob);
@@ -934,7 +934,7 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
 
         // Caller is not controller, `set_address` should fail.
         set_next_caller(accounts.bob);
@@ -958,7 +958,7 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
 
         // Test transfer of owner.
         assert_eq!(contract.transfer(name.clone(), accounts.bob), Ok(()));
@@ -998,7 +998,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(domain_name.clone()), Ok(()));
+        assert_eq!(contract.register(domain_name.clone(), None), Ok(()));
 
         assert_eq!(
             contract.set_all_records(domain_name.clone(), records.clone()),
@@ -1034,4 +1034,24 @@ mod tests {
             Vec::from([("twitter".to_string(), "@newtest".to_string())])
         );
     }
+
+    // TODO: Finish this test once we get cross-contract testing working
+    // #[ink::test]
+    // fn whitelist_phase_works() {
+    //     // 1. Init (whitelist-phase)
+
+    //     // 2. Verify an empty proof fails
+
+    //     // 3. Verify that an invalid proof fails
+
+    //     // 4. Verify that valid proof works and the domain is registered
+
+    //     // 5. Verify a user can claim only one domain during whitelist-phase
+
+    //     // 6. Verify `release()` fails
+
+    //     // 7. Verify `transfer()` fails
+
+    //     // 8. Verify `switch_to_public_phase()` works
+    // }
 }
