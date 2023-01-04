@@ -12,6 +12,7 @@ mod azns_registry {
     use ink::storage::Mapping;
 
     use azns_name_checker::NameCheckerRef;
+    use merkle_verifier::MerkleVerifierRef;
 
     pub type Result<T> = core::result::Result<T, Error>;
 
@@ -81,6 +82,8 @@ mod azns_registry {
         address_to_primary_domain: Mapping<ink::primitives::AccountId, String>,
         /// Tracks if a domain is a namespace
         domain_to_parent: Mapping<String, String>,
+        /// Merkle Verifier used to identifiy whitelisted addresses for airdrop
+        whitelisted_address_verifier: MerkleVerifierRef,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -114,11 +117,17 @@ mod azns_registry {
     impl DomainNameService {
         /// Creates a new AZNS contract.
         #[ink(constructor)]
-        pub fn new(name_checker_hash: Option<Hash>, version: Option<u32>) -> Self {
+        pub fn new(
+            name_checker_hash: Option<Hash>,
+            merkle_verifier_hash: Hash,
+            merkle_root: [u8; 32],
+            version: Option<u32>,
+        ) -> Self {
             let caller = Self::env().caller();
 
             // Initializing NameChecker
             let total_balance = Self::env().balance();
+            let salt = version.unwrap_or(1u32).to_le_bytes();
 
             let name_checker = match name_checker_hash {
                 Some(hash) => {
@@ -135,6 +144,13 @@ mod azns_registry {
                 None => None,
             };
 
+            let whitelisted_address_verifier = MerkleVerifierRef::new(merkle_root)
+                .endowment(total_balance / 4) // TODO why /4?
+                .code_hash(merkle_verifier_hash)
+                .salt_bytes(salt)
+                .instantiate()
+                .expect("failed at instantiating the `MerkleVerifierRef` contract");
+
             Self {
                 owner: caller,
                 name_checker,
@@ -146,6 +162,7 @@ mod azns_registry {
                 additional_info: Default::default(),
                 address_to_primary_domain: Default::default(),
                 domain_to_parent: Default::default(),
+                whitelisted_address_verifier,
             }
         }
 
@@ -156,8 +173,8 @@ mod azns_registry {
                     name_with_parent.push('.');
                     name_with_parent.push_str(&parent);
                     name_with_parent
-                },
-                None => name
+                }
+                None => name,
             }
         }
 

@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub use self::merkle_verifier::{MerkleVerifier, MerkleVerifierRef};
+
 #[ink::contract]
 mod merkle_verifier {
 
