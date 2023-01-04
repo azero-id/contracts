@@ -275,15 +275,37 @@ mod azns_registry {
         }
 
         /// Register specific name with caller as owner.
+        ///
+        /// NOTE: During the whitelist phase, use `register()` method instead.
         #[ink(message, payable)]
         pub fn register_on_behalf_of(
             &mut self,
             name: String,
             recipient: ink::primitives::AccountId,
+            merkle_proof: Option<Vec<[u8; 32]>>,
         ) -> Result<()> {
-            // Check whether domain registration is open for public
-            if self.is_whitelist_phase() {
-                return Err(Error::RestrictedDuringWhitelistPhase);
+            // If in whitelist-phase; Verify that the caller is whitelisted
+            if let Some(verifier) = &self.whitelisted_address_verifier {
+                let caller = self.env().caller();
+
+                // Recipient must be the same as caller incase of whitelist-phase
+                if recipient != caller {
+                    return Err(Error::RestrictedDuringWhitelistPhase);
+                }
+
+                // Verify this is the first claim of the user
+                if self.owner_to_names.contains(&caller) {
+                    return Err(Error::AlreadyClaimed);
+                }
+
+                // Verify the proof
+                let merkle_proof = merkle_proof.ok_or(Error::InvalidMerkleProof)?;
+                let mut leaf = [0u8; 32]; // It is the hash of the item (AccountId)
+                ink::env::hash::Sha2x256::hash(caller.as_ref(), &mut leaf);
+
+                if !verifier.verify_proof(leaf, merkle_proof) {
+                    return Err(Error::InvalidMerkleProof);
+                }
             }
 
             /* Make sure the register is paid for */
@@ -296,45 +318,15 @@ mod azns_registry {
         }
 
         /// Register specific name with caller as owner.
+        ///
+        /// NOTE: Whitelisted addresses can buy one domain during the whitelist phase by submitting its proof
         #[ink(message, payable)]
-        pub fn register(&mut self, name: String) -> Result<()> {
-            self.register_on_behalf_of(name, Self::env().caller())
-        }
-
-        /// Addresses eligible for the whitelist-phase can buy one domain during this phase.
-        #[ink(message, payable)]
-        pub fn whitelist_phase_register(
+        pub fn register(
             &mut self,
             name: String,
-            merkle_proof: Vec<[u8; 32]>,
+            merkle_proof: Option<Vec<[u8; 32]>>,
         ) -> Result<()> {
-            // Ensure it is the whitelist-phase
-            let Some(verifier) = &self.whitelisted_address_verifier else {
-                return Err(Error::OnlyDuringWhitelistPhase);
-            };
-
-            let caller = self.env().caller();
-
-            // Ensure this is the first claim
-            if self.owner_to_names.contains(&caller) {
-                return Err(Error::AlreadyClaimed);
-            }
-
-            // Verify the proof
-            let mut leaf = [0u8; 32]; // It is the hash of the item (AccountId)
-            ink::env::hash::Sha2x256::hash(caller.as_ref(), &mut leaf);
-
-            if !verifier.verify_proof(leaf, merkle_proof) {
-                return Err(Error::InvalidMerkleProof);
-            }
-
-            /* Make sure the register is paid for */
-            let _transferred = Self::env().transferred_value();
-            if _transferred < get_domain_price(&name) {
-                return Err(Error::FeeNotPaid);
-            }
-
-            self.register_domain(&name, &caller)
+            self.register_on_behalf_of(name, self.env().caller(), merkle_proof)
         }
 
         /// Release domain from registration.
