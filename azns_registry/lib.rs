@@ -60,6 +60,10 @@ mod azns_registry {
         new_owner: ink::primitives::AccountId,
     }
 
+    /// Emitted when switching from whitelist-phase to public-phase
+    #[ink(event)]
+    pub struct PublicPhaseActivated;
+
     #[ink(storage)]
     pub struct DomainNameService {
         name_checker: Option<NameCheckerRef>,
@@ -84,8 +88,8 @@ mod azns_registry {
         address_to_primary_domain: Mapping<ink::primitives::AccountId, String>,
         /// Tracks if a domain is a namespace
         domain_to_parent: Mapping<String, String>,
-        /// Merkle Verifier used to identifiy whitelisted addresses for airdrop
-        whitelisted_address_verifier: MerkleVerifierRef,
+        /// Merkle Verifier used to identifiy whitelisted addresses
+        whitelisted_address_verifier: Option<MerkleVerifierRef>,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -118,6 +122,10 @@ mod azns_registry {
         AlreadyClaimed,
         /// The merkle proof is invalid
         InvalidMerkleProof,
+        /// Given operation can only be performed during the whitelist-phase
+        OnlyDuringWhitelistPhase,
+        /// Given operation cannot be performed during the whitelist-phase
+        RestrictedDuringWhitelistPhase,
     }
 
     impl DomainNameService {
@@ -125,7 +133,7 @@ mod azns_registry {
         #[ink(constructor)]
         pub fn new(
             name_checker_hash: Option<Hash>,
-            merkle_verifier_hash: Hash,
+            merkle_verifier_hash: Option<Hash>,
             merkle_root: [u8; 32],
             version: Option<u32>,
         ) -> Self {
@@ -149,12 +157,15 @@ mod azns_registry {
                 None => None,
             };
 
-            let whitelisted_address_verifier = MerkleVerifierRef::new(merkle_root)
-                .endowment(total_balance / 4) // TODO why /4?
-                .code_hash(merkle_verifier_hash)
-                .salt_bytes(salt)
-                .instantiate()
-                .expect("failed at instantiating the `MerkleVerifierRef` contract");
+            // Initializing MerkleVerifier
+            let whitelisted_address_verifier = merkle_verifier_hash.map(|ch| {
+                MerkleVerifierRef::new(merkle_root)
+                    .endowment(total_balance / 4) // TODO why /4?
+                    .code_hash(ch)
+                    .salt_bytes(salt)
+                    .instantiate()
+                    .expect("failed at instantiating the `MerkleVerifierRef` contract")
+            });
 
             Self {
                 owner: caller,
@@ -270,6 +281,11 @@ mod azns_registry {
             name: String,
             recipient: ink::primitives::AccountId,
         ) -> Result<()> {
+            // Check whether domain registration is open for public
+            if self.is_whitelist_phase() {
+                return Err(Error::RestrictedDuringWhitelistPhase);
+            }
+
             /* Make sure the register is paid for */
             let _transferred = Self::env().transferred_value();
             if _transferred < get_domain_price(&name) {
@@ -292,6 +308,11 @@ mod azns_registry {
             name: String,
             merkle_proof: Vec<[u8; 32]>,
         ) -> Result<()> {
+            // Ensure it is the whitelist-phase
+            let Some(verifier) = &self.whitelisted_address_verifier else {
+                return Err(Error::OnlyDuringWhitelistPhase);
+            };
+
             let caller = self.env().caller();
 
             // Ensure this is the first claim
@@ -303,10 +324,7 @@ mod azns_registry {
             let mut leaf = [0u8; 32]; // It is the hash of the item (AccountId)
             ink::env::hash::Sha2x256::hash(caller.as_ref(), &mut leaf);
 
-            if !self
-                .whitelisted_address_verifier
-                .verify_proof(leaf, merkle_proof)
-            {
+            if !verifier.verify_proof(leaf, merkle_proof) {
                 return Err(Error::InvalidMerkleProof);
             }
 
@@ -322,6 +340,11 @@ mod azns_registry {
         /// Release domain from registration.
         #[ink(message)]
         pub fn release(&mut self, name: String) -> Result<()> {
+            // Disabled during whitelist-phase
+            if self.is_whitelist_phase() {
+                return Err(Error::RestrictedDuringWhitelistPhase);
+            }
+
             let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
@@ -376,6 +399,11 @@ mod azns_registry {
         /// Transfer owner to another address.
         #[ink(message)]
         pub fn transfer(&mut self, name: String, to: ink::primitives::AccountId) -> Result<()> {
+            // Transfer is disabled during the whitelist-phase
+            if self.is_whitelist_phase() {
+                return Err(Error::RestrictedDuringWhitelistPhase);
+            }
+
             /* Ensure the caller is the owner of the domain */
             let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
@@ -426,6 +454,27 @@ mod azns_registry {
             self.name_to_controller.insert(&name, &new_controller);
 
             Ok(())
+        }
+
+        /// (ADMIN-OPERATION)
+        /// Switch from whitelist-phase to public-phase
+        #[ink(message)]
+        pub fn switch_to_public_phase(&mut self) -> Result<()> {
+            if self.owner != self.env().caller() {
+                return Err(CallerIsNotOwner);
+            }
+
+            if self.whitelisted_address_verifier.take().is_some() {
+                self.env().emit_event(PublicPhaseActivated {});
+            }
+            Ok(())
+        }
+
+        /// Returns `true` when contract is in whitelist-phase
+        /// and `false` when it is in public-phase
+        #[ink(message)]
+        pub fn is_whitelist_phase(&self) -> bool {
+            self.whitelisted_address_verifier.is_some()
         }
 
         /// Get address for specific name.
