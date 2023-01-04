@@ -2,11 +2,13 @@
 
 #[ink::contract]
 mod azns_registry {
+    use crate::alloc::string::ToString;
     use crate::azns_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, NoResolvedAddress,
-        RecordNotFound, WithdrawFailed, RecursiveParent
+        RecordNotFound, RecursiveParent, WithdrawFailed,
     };
     use azns_name_checker::get_domain_price;
+    use ink::env::hash::CryptoHash;
     use ink::prelude::string::String;
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
@@ -111,7 +113,11 @@ mod azns_registry {
         /// No resolved address found
         NoResolvedAddress,
         /// Recursive parents not allowed
-        RecursiveParent
+        RecursiveParent,
+        /// A user can claim only one domain during the whitelist-phase
+        AlreadyClaimed,
+        /// The merkle proof is invalid
+        InvalidMerkleProof,
     }
 
     impl DomainNameService {
@@ -131,7 +137,6 @@ mod azns_registry {
 
             let name_checker = match name_checker_hash {
                 Some(hash) => {
-                    let salt = version.unwrap_or(1u32).to_le_bytes();
                     Some(
                         NameCheckerRef::new()
                             .endowment(total_balance / 4) // TODO why /4?
@@ -265,17 +270,44 @@ mod azns_registry {
             name: String,
             recipient: ink::primitives::AccountId,
         ) -> Result<()> {
-            /* Name cannot be empty */
-            if name.is_empty() {
-                return Err(Error::NameEmpty);
+            /* Make sure the register is paid for */
+            let _transferred = Self::env().transferred_value();
+            if _transferred < get_domain_price(&name) {
+                return Err(Error::FeeNotPaid);
             }
 
-            /* Name must be legal */
-            if let Some(name_checker) = &self.name_checker {
-                match name_checker.is_name_allowed(name.clone()) {
-                    Ok(_) => (),
-                    Err(_) => return Err(Error::NameNotAllowed),
-                };
+            self.register_domain(&name, &recipient)
+        }
+
+        /// Register specific name with caller as owner.
+        #[ink(message, payable)]
+        pub fn register(&mut self, name: String) -> Result<()> {
+            self.register_on_behalf_of(name, Self::env().caller())
+        }
+
+        /// Addresses eligible for the whitelist-phase can buy one domain during this phase.
+        #[ink(message, payable)]
+        pub fn whitelist_phase_register(
+            &mut self,
+            name: String,
+            merkle_proof: Vec<[u8; 32]>,
+        ) -> Result<()> {
+            let caller = self.env().caller();
+
+            // Ensure this is the first claim
+            if self.owner_to_names.contains(&caller) {
+                return Err(Error::AlreadyClaimed);
+            }
+
+            // Verify the proof
+            let mut leaf = [0u8; 32]; // It is the hash of the item (AccountId)
+            ink::env::hash::Sha2x256::hash(caller.as_ref(), &mut leaf);
+
+            if !self
+                .whitelisted_address_verifier
+                .verify_proof(leaf, merkle_proof)
+            {
+                return Err(Error::InvalidMerkleProof);
             }
 
             /* Make sure the register is paid for */
@@ -284,44 +316,7 @@ mod azns_registry {
                 return Err(Error::FeeNotPaid);
             }
 
-            /* Ensure domain is not already registered */
-            if self.name_to_owner.contains(&name) {
-                return Err(Error::NameAlreadyExists);
-            }
-
-            /* Set domain owner */
-            self.name_to_owner.insert(&name, &recipient);
-
-            /* Set domain controller */
-            self.name_to_controller.insert(&name, &recipient);
-
-            /* Set resolved domain */
-            self.name_to_address.insert(&name, &recipient);
-
-            /* Update convenience mapping */
-            let previous_names = self.owner_to_names.get(recipient);
-            if let Some(names) = previous_names {
-                let mut new_names = names;
-                new_names.push(name.clone());
-                self.owner_to_names.insert(recipient, &new_names);
-            } else {
-                self.owner_to_names
-                    .insert(recipient, &Vec::from([name.clone()]));
-            }
-
-            /* Emit register event */
-            Self::env().emit_event(Register {
-                name: name.clone(),
-                from: recipient,
-            });
-
-            Ok(())
-        }
-
-        /// Register specific name with caller as owner.
-        #[ink(message, payable)]
-        pub fn register(&mut self, name: String) -> Result<()> {
-            self.register_on_behalf_of(name, Self::env().caller())
+            self.register_domain(&name, &caller)
         }
 
         /// Release domain from registration.
@@ -470,6 +465,58 @@ mod azns_registry {
             owner: ink::primitives::AccountId,
         ) -> Option<Vec<String>> {
             self.owner_to_names.get(owner)
+        }
+
+        fn register_domain(
+            &mut self,
+            name: &str,
+            recipient: &ink::primitives::AccountId,
+        ) -> Result<()> {
+            /* Name cannot be empty */
+            if name.is_empty() {
+                return Err(Error::NameEmpty);
+            }
+
+            /* Name must be legal */
+            if let Some(name_checker) = &self.name_checker {
+                match name_checker.is_name_allowed(name.to_string()) {
+                    Ok(_) => (),
+                    Err(_) => return Err(Error::NameNotAllowed),
+                };
+            }
+
+            /* Ensure domain is not already registered */
+            if self.name_to_owner.contains(name) {
+                return Err(Error::NameAlreadyExists);
+            }
+
+            /* Set domain owner */
+            self.name_to_owner.insert(name, recipient);
+
+            /* Set domain controller */
+            self.name_to_controller.insert(name, recipient);
+
+            /* Set resolved domain */
+            self.name_to_address.insert(name, recipient);
+
+            /* Update convenience mapping */
+            let previous_names = self.owner_to_names.get(recipient);
+            if let Some(names) = previous_names {
+                let mut new_names = names;
+                new_names.push(name.to_string());
+                self.owner_to_names.insert(recipient, &new_names);
+            } else {
+                self.owner_to_names
+                    .insert(recipient, &Vec::from([name.to_string()]));
+            }
+
+            /* Emit register event */
+            Self::env().emit_event(Register {
+                name: name.to_string(),
+                from: *recipient,
+            });
+
+            Ok(())
         }
 
         /// Deletes a name from owner
