@@ -56,6 +56,7 @@ mod merkle_verifier {
     mod tests {
         /// Imports all the definitions from the outer scope so we can use them here.
         use super::*;
+        use hex::{decode, encode};
         use ink::env::hash::{CryptoHash, Sha2x256};
 
         #[ink::test]
@@ -127,6 +128,17 @@ mod merkle_verifier {
             let proof = vec![leaves[0], internal_nodes[1]];
             let res = merkle_verifier.verify_proof(leaf, proof);
             assert_eq!(res, true);
+        }
+
+        #[ink::test]
+        fn kccak_works() {
+            let mut hash = [0u8; 32];
+            ink::env::hash::Keccak256::hash("hello".as_bytes(), &mut hash);
+
+            assert_eq!(
+                decode("1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8").unwrap(),
+                hash
+            );
         }
     }
 }
