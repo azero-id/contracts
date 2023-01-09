@@ -177,6 +177,8 @@ mod azns_registry {
                 additional_info: Default::default(),
                 address_to_primary_domain: Default::default(),
                 domain_to_parent: Default::default(),
+                controller_to_names: Default::default(),
+                resolving_to_address: Default::default(),
                 whitelisted_address_verifier,
             }
         }
@@ -721,7 +723,7 @@ mod tests {
         assert_eq!(contract.register(name.clone(), None), Ok(()));
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(
-            contract.get_names_of_address(default_accounts.alice),
+            contract.get_owned_names_of_address(default_accounts.alice),
             Some(Vec::from([name.clone()]))
         );
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
@@ -780,11 +782,11 @@ mod tests {
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name2, None), Ok(()));
         assert!(contract
-            .get_names_of_address(default_accounts.alice)
+            .get_owned_names_of_address(default_accounts.alice)
             .unwrap()
             .contains(&String::from("test")));
         assert!(contract
-            .get_names_of_address(default_accounts.alice)
+            .get_owned_names_of_address(default_accounts.alice)
             .unwrap()
             .contains(&String::from("test2")));
     }
@@ -855,7 +857,7 @@ mod tests {
         assert_eq!(contract.get_owner(name.clone()), default_accounts.alice);
         assert_eq!(contract.get_address(name.clone()), default_accounts.alice);
         assert_eq!(
-            contract.get_names_of_address(default_accounts.alice),
+            contract.get_owned_names_of_address(default_accounts.alice),
             Some(Vec::from([name.clone()]))
         );
 
@@ -863,7 +865,7 @@ mod tests {
         assert_eq!(contract.get_owner(name.clone()), Default::default());
         assert_eq!(contract.get_address(name.clone()), Default::default());
         assert_eq!(
-            contract.get_names_of_address(default_accounts.alice),
+            contract.get_owned_names_of_address(default_accounts.alice),
             Some(Vec::from([]))
         );
 
@@ -960,11 +962,11 @@ mod tests {
         assert_eq!(contract.transfer(name.clone(), accounts.bob), Ok(()));
 
         assert_eq!(
-            contract.get_names_of_address(accounts.alice),
+            contract.get_owned_names_of_address(accounts.alice),
             Some(Vec::from([]))
         );
         assert_eq!(
-            contract.get_names_of_address(accounts.bob),
+            contract.get_owned_names_of_address(accounts.bob),
             Some(Vec::from([name.clone()]))
         );
 
