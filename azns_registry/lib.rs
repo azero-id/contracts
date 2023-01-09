@@ -143,19 +143,14 @@ mod azns_registry {
             let total_balance = Self::env().balance();
             let salt = version.unwrap_or(1u32).to_le_bytes();
 
-            let name_checker = match name_checker_hash {
-                Some(hash) => {
-                    Some(
-                        NameCheckerRef::new()
-                            .endowment(total_balance / 4) // TODO why /4?
-                            .code_hash(hash)
-                            .salt_bytes(salt)
-                            .instantiate()
-                            .expect("failed at instantiating the `NameCheckerRef` contract"),
-                    )
-                }
-                None => None,
-            };
+            let name_checker = name_checker_hash.map(|hash| {
+                NameCheckerRef::new()
+                    .endowment(total_balance / 4) // TODO why /4?
+                    .code_hash(hash)
+                    .salt_bytes(salt)
+                    .instantiate()
+                    .expect("failed at instantiating the `NameCheckerRef` contract")
+            });
 
             // Initializing MerkleVerifier
             let whitelisted_address_verifier = merkle_verifier_hash.map(|ch| {
@@ -294,7 +289,7 @@ mod azns_registry {
                 }
 
                 // Verify this is the first claim of the user
-                if self.owner_to_names.contains(&caller) {
+                if self.owner_to_names.contains(caller) {
                     return Err(Error::AlreadyClaimed);
                 }
 
@@ -617,7 +612,7 @@ mod azns_registry {
             /* Ensure that the address is a controller of the target domain */
             let controller = self.get_controller_or_default(&name);
             if address != controller {
-                return Err(CallerIsNotController);
+                Err(CallerIsNotController)
             } else {
                 Ok(())
             }
@@ -673,10 +668,10 @@ mod tests {
         assert_eq!(contract.register(name.clone(), None), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name2.clone(), None), Ok(()));
+        assert_eq!(contract.register(name2, None), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name3.clone(), None), Ok(()));
+        assert_eq!(contract.register(name3, None), Ok(()));
 
         /* Now alice owns three domains */
         /* Set the primary domain for alice's address to domain 1 */
@@ -707,10 +702,7 @@ mod tests {
             .set_primary_domain(default_accounts.bob, name.clone())
             .unwrap();
         /* Now the primary domain should not resolve to anything */
-        assert_eq!(
-            contract.get_primary_domain(default_accounts.bob),
-            Ok(name.clone())
-        );
+        assert_eq!(contract.get_primary_domain(default_accounts.bob), Ok(name));
     }
 
     #[ink::test]
