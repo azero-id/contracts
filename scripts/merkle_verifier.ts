@@ -7,12 +7,14 @@ import { readFileSync } from "fs";
 import { keccak256 } from "js-sha3";
 import { MerkleTree } from "merkletreejs";
 import abi from "../merkle_verifier/target/ink/metadata.json";
+import { bufferToU8a, hexToU8a } from '@polkadot/util';
 
 const wasm = readFileSync("./merkle_verifier/target/ink/merkle_verifier.wasm");
 
 let api: ApiPromise;
 let keyring: Keyring;
 let alice: IKeyringPair;
+let gasLimit: any;
 
 /**
  * Initialized polkadot.js & development keypair
@@ -21,6 +23,12 @@ const initPolkadotJs = async () => {
   api = await ApiPromise.create();
   keyring = new Keyring({ type: "sr25519" });
   alice = keyring.createFromUri("//Alice");
+
+  // HACK: Workaround for polkadot.js gasLimit incompatibility with WeightsV2 (https://github.com/polkadot-js/api/issues/5255)
+  gasLimit = api.registry.createType("WeightV2", {
+    refTime: new BN("100000000000"),
+    proofSize: new BN("10000000000"),
+  });
 };
 
 /**
@@ -34,7 +42,7 @@ const instantiate = async (
 ): Promise<{ contractAddress: string }> => {
   // Convert MerkleTree root to Uint8Array
   const rootBuffer = tree.getRoot();
-  const rootUint8Array = new Uint8Array(rootBuffer);
+  const rootUint8Array = bufferToU8a(rootBuffer);
 
   // Deploy contract
   const code = new CodePromise(api, abi, wasm);
@@ -54,11 +62,6 @@ const instantiate = async (
   await new Promise((r) => setTimeout(r, 1000));
 
   // Query contract for root
-  // HACK: Workaround for polkadot.js gasLimit incompatibility with WeightsV2 (https://github.com/polkadot-js/api/issues/5255)
-  const gasLimit: any = api.registry.createType("WeightV2", {
-    refTime: new BN("10000000000"),
-    proofSize: new BN("10000000000"),
-  });
   const contract = new ContractPromise(api, abi, contractAddress);
   const { result, output } = await contract.query.root(alice.address, {
     gasLimit,
@@ -87,9 +90,33 @@ const instantiate = async (
 };
 
 /**
- * TODO: Check on-chain Proofs work
+ * Checks on-chain Proofs work
+ * @param tree MerkleTree object on which the proof is constructed
+ * @param contractAddress MerkleVerifier contract address
+ * @param item Item whose inclusion needs to be verifed
  */
-const verifyProofs = async (tree: MerkleTree, contractAddress: string) => {};
+const verifyProofs = async (tree: MerkleTree, contractAddress: string, item: string) => {
+  const leaf = SHA256(item);
+  const leaf_encoded = hexToU8a(leaf.toString());
+  const proof = tree.getProof(leaf).map(x => x.data);
+
+  const contract = new ContractPromise(api, abi, contractAddress);
+  const { result, output } = await contract.query.verifyProof(alice.address, {
+    gasLimit,
+  }, leaf_encoded, proof);
+
+  if (result.isOk && !!output) {
+    let res = output.toPrimitive()["ok"];
+
+    if (res) {
+      console.log("verifyProof works.");
+    } else {
+      console.log("On-chain proof failed.");
+    }
+  } else {
+    console.error("Error while querying contract. Got result:", result);
+  }
+};
 
 async function main() {
   await initPolkadotJs();
@@ -110,7 +137,7 @@ async function main() {
   const badLeaf = SHA256("x");
   const badProof = badTree.getProof(badLeaf);
 
-  await verifyProofs(tree, contractAddress);
+  await verifyProofs(tree, contractAddress, "b");
 }
 
 main()
