@@ -496,7 +496,7 @@ mod azns_registry {
 
         /// Returns all names the address owns
         #[ink(message)]
-        pub fn get_names_of_address(
+        pub fn get_owned_names_of_address(
             &self,
             owner: ink::primitives::AccountId,
         ) -> Option<Vec<String>> {
