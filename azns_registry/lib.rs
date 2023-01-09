@@ -78,8 +78,12 @@ mod azns_registry {
         /// Owner of the contract
         /// can withdraw funds
         owner: ink::primitives::AccountId,
-        /// All names of an address
+        /// All names an address owns
         owner_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
+        /// All names an address controls
+        controller_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
+        /// All names that resolve to the given address
+        resolving_to_address: Mapping<ink::primitives::AccountId, Vec<String>>,
         /// Metadata
         additional_info: Mapping<String, Vec<(String, String)>>,
         /// Primary domain record
