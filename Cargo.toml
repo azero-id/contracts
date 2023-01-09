@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "merkle_verifier",
+    "azns_registry",
+    "azns_name_checker"
+]
