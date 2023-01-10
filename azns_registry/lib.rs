@@ -275,6 +275,24 @@ mod azns_registry {
             Ok(primary_domain)
         }
 
+        #[ink(message)]
+        pub fn verify_proof(
+            &self,
+            account: AccountId,
+            merkle_proof: Option<Vec<[u8; 32]>>,
+        ) -> bool {
+            let Some(merkle_proof) = merkle_proof else {
+                return false;
+            };
+            let mut leaf = [0u8; 32];
+            ink::env::hash::Sha2x256::hash(account.as_ref(), &mut leaf);
+
+            let Some(verifier) = &self.whitelisted_address_verifier else {
+                return false;
+            };
+            verifier.verify_proof(leaf, merkle_proof)
+        }
+
         /// Register specific name with caller as owner.
         ///
         /// NOTE: During the whitelist phase, use `register()` method instead.
@@ -286,7 +304,7 @@ mod azns_registry {
             merkle_proof: Option<Vec<[u8; 32]>>,
         ) -> Result<()> {
             // If in whitelist-phase; Verify that the caller is whitelisted
-            if let Some(verifier) = &self.whitelisted_address_verifier {
+            if self.is_whitelist_phase() {
                 let caller = self.env().caller();
 
                 // Recipient must be the same as caller incase of whitelist-phase
@@ -300,11 +318,7 @@ mod azns_registry {
                 }
 
                 // Verify the proof
-                let merkle_proof = merkle_proof.ok_or(Error::InvalidMerkleProof)?;
-                let mut leaf = [0u8; 32]; // It is the hash of the item (AccountId)
-                ink::env::hash::Sha2x256::hash(caller.as_ref(), &mut leaf);
-
-                if !verifier.verify_proof(leaf, merkle_proof) {
+                if !self.verify_proof(caller, merkle_proof) {
                     return Err(Error::InvalidMerkleProof);
                 }
             }
