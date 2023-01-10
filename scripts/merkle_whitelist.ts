@@ -2,13 +2,13 @@ import { ApiPromise, Keyring } from "@polkadot/api";
 import { CodePromise, ContractPromise } from "@polkadot/api-contract";
 import { IKeyringPair } from "@polkadot/types/types/interfaces";
 import BN from "bn.js";
-import { SHA256 } from "crypto-js";
+import { SHA256, enc } from "crypto-js";
 import { readFileSync } from "fs";
 import { keccak256 } from "js-sha3";
 import { MerkleTree } from "merkletreejs";
 import merkleVerifierABI from "../target/ink/merkle_verifier/metadata.json";
 import aznsRegistryABI from "../target/ink/azns_registry/metadata.json";
-import { bufferToU8a, hexToU8a } from '@polkadot/util';
+import { bufferToU8a, u8aToHex } from '@polkadot/util';
 
 const merkleVerifierWASM = readFileSync("./target/ink/merkle_verifier/merkle_verifier.wasm");
 const aznsRegisterWASM = readFileSync("./target/ink/azns_registry/azns_registry.wasm");
@@ -34,15 +34,33 @@ const initPolkadotJs = async () => {
 };
 
 /**
+ * Parses & Hashes the accountId
+ * @param accountId SS58 encoded AccountId
+ * @returns SHA256(accountId)
+ */
+const hashAccountId = (accountId: string) => {
+  let pubkey = u8aToHex(keyring.decodeAddress(accountId));
+  let hexkey = enc.Hex.parse(pubkey.slice(2));
+  return SHA256(hexkey)
+}
+
+/**
  * Constructs the merkle tree from the whitelisted accounts
  * @returns MerkleTree Object
  */
 const constructMerkleTree = async () => {
-  const leaves = ["a", "b", "c", keyring.decodeAddress(alice.address)].map((x) => SHA256(x));
+  const leaves = [
+    "5Gju41fG3iX4ZgYP8qYeJgNntSaAXYdh84F6pa1nVxCgVibu",
+    "5E56jqWxmhdnuUy6RJsar2Uf89FjUDtCKRTEFcf5SyyvoZJg",
+    "5CcBFjse1bTp1eeFUR5sAjxVQm4nuD3vgtJZy6p3iFj4ae63",
+    alice.address,  // Test Account
+  ].map((addr) => hashAccountId(addr));
+
   const tree = new MerkleTree(leaves, keccak256, {
     sortPairs: true,
   });
 
+  console.log("Merkle root:", tree.getHexRoot());
   return tree;
 }
 
@@ -108,7 +126,7 @@ const instantiate = async (
  * @returns Buffer[] - proof of the inclusion of given accountId in the merkle tree
  */
 const generateProof = async (tree: MerkleTree, accountId: string) => {
-  const leaf = SHA256(keyring.decodeAddress(accountId));
+  const leaf = hashAccountId(accountId);
   const proof = tree.getProof(leaf).map(x => x.data);
 
   console.log("Off-chain verification:", tree.verify(proof, leaf, tree.getRoot()));
@@ -126,6 +144,7 @@ const generateProof = async (tree: MerkleTree, accountId: string) => {
 const register_with_proof = async (contractAddress: string, signer: IKeyringPair, domain: string, price: BN, proof: Buffer[]) => {
   const contract = new ContractPromise(api, aznsRegistryABI, contractAddress);
 
+  // Check the proof is working on-chain
   let { result, output } = await contract.query.verifyProof(signer.address, {
     gasLimit,
   }, signer.address, proof);
@@ -141,7 +160,6 @@ const register_with_proof = async (contractAddress: string, signer: IKeyringPair
   } else {
     console.error("Error while querying contract. Got result:", result);
   }
-  return;
 
   // Register domain with proof
   await contract.tx.register({
