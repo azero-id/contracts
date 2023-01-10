@@ -6,10 +6,10 @@ import { SHA256 } from "crypto-js";
 import { readFileSync } from "fs";
 import { keccak256 } from "js-sha3";
 import { MerkleTree } from "merkletreejs";
-import abi from "../merkle_verifier/target/ink/metadata.json";
+import abi from "../target/ink/merkle_verifier/metadata.json";
 import { bufferToU8a, hexToU8a } from '@polkadot/util';
 
-const wasm = readFileSync("./merkle_verifier/target/ink/merkle_verifier.wasm");
+const wasm = readFileSync("./target/ink/merkle_verifier/merkle_verifier.wasm");
 
 let api: ApiPromise;
 let keyring: Keyring;
