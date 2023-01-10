@@ -2,16 +2,19 @@
 
 #[ink::contract]
 mod azns_registry {
+    use crate::alloc::string::ToString;
     use crate::azns_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, NoResolvedAddress,
-        RecordNotFound, WithdrawFailed, RecursiveParent
+        RecordNotFound, RecursiveParent, WithdrawFailed,
     };
     use azns_name_checker::get_domain_price;
+    use ink::env::hash::CryptoHash;
     use ink::prelude::string::String;
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
 
     use azns_name_checker::NameCheckerRef;
+    use merkle_verifier::MerkleVerifierRef;
 
     pub type Result<T> = core::result::Result<T, Error>;
 
@@ -57,6 +60,10 @@ mod azns_registry {
         new_owner: ink::primitives::AccountId,
     }
 
+    /// Emitted when switching from whitelist-phase to public-phase
+    #[ink(event)]
+    pub struct PublicPhaseActivated;
+
     #[ink(storage)]
     pub struct DomainNameService {
         name_checker: Option<NameCheckerRef>,
@@ -71,8 +78,12 @@ mod azns_registry {
         /// Owner of the contract
         /// can withdraw funds
         owner: ink::primitives::AccountId,
-        /// All names of an address
+        /// All names an address owns
         owner_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
+        /// All names an address controls
+        controller_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
+        /// All names that resolve to the given address
+        resolving_to_address: Mapping<ink::primitives::AccountId, Vec<String>>,
         /// Metadata
         additional_info: Mapping<String, Vec<(String, String)>>,
         /// Primary domain record
@@ -81,6 +92,8 @@ mod azns_registry {
         address_to_primary_domain: Mapping<ink::primitives::AccountId, String>,
         /// Tracks if a domain is a namespace
         domain_to_parent: Mapping<String, String>,
+        /// Merkle Verifier used to identifiy whitelisted addresses
+        whitelisted_address_verifier: Option<MerkleVerifierRef>,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -108,32 +121,50 @@ mod azns_registry {
         /// No resolved address found
         NoResolvedAddress,
         /// Recursive parents not allowed
-        RecursiveParent
+        RecursiveParent,
+        /// A user can claim only one domain during the whitelist-phase
+        AlreadyClaimed,
+        /// The merkle proof is invalid
+        InvalidMerkleProof,
+        /// Given operation can only be performed during the whitelist-phase
+        OnlyDuringWhitelistPhase,
+        /// Given operation cannot be performed during the whitelist-phase
+        RestrictedDuringWhitelistPhase,
     }
 
     impl DomainNameService {
         /// Creates a new AZNS contract.
         #[ink(constructor)]
-        pub fn new(name_checker_hash: Option<Hash>, version: Option<u32>) -> Self {
+        pub fn new(
+            name_checker_hash: Option<Hash>,
+            merkle_verifier_hash: Option<Hash>,
+            merkle_root: [u8; 32],
+            version: Option<u32>,
+        ) -> Self {
             let caller = Self::env().caller();
 
             // Initializing NameChecker
             let total_balance = Self::env().balance();
+            let salt = version.unwrap_or(1u32).to_le_bytes();
 
-            let name_checker = match name_checker_hash {
-                Some(hash) => {
-                    let salt = version.unwrap_or(1u32).to_le_bytes();
-                    Some(
-                        NameCheckerRef::new()
-                            .endowment(total_balance / 4) // TODO why /4?
-                            .code_hash(hash)
-                            .salt_bytes(salt)
-                            .instantiate()
-                            .expect("failed at instantiating the `NameCheckerRef` contract"),
-                    )
-                }
-                None => None,
-            };
+            let name_checker = name_checker_hash.map(|hash| {
+                NameCheckerRef::new()
+                    .endowment(total_balance / 4) // TODO why /4?
+                    .code_hash(hash)
+                    .salt_bytes(salt)
+                    .instantiate()
+                    .expect("failed at instantiating the `NameCheckerRef` contract")
+            });
+
+            // Initializing MerkleVerifier
+            let whitelisted_address_verifier = merkle_verifier_hash.map(|ch| {
+                MerkleVerifierRef::new(merkle_root)
+                    .endowment(total_balance / 4) // TODO why /4?
+                    .code_hash(ch)
+                    .salt_bytes(salt)
+                    .instantiate()
+                    .expect("failed at instantiating the `MerkleVerifierRef` contract")
+            });
 
             Self {
                 owner: caller,
@@ -146,6 +177,9 @@ mod azns_registry {
                 additional_info: Default::default(),
                 address_to_primary_domain: Default::default(),
                 domain_to_parent: Default::default(),
+                controller_to_names: Default::default(),
+                resolving_to_address: Default::default(),
+                whitelisted_address_verifier,
             }
         }
 
@@ -156,8 +190,8 @@ mod azns_registry {
                     name_with_parent.push('.');
                     name_with_parent.push_str(&parent);
                     name_with_parent
-                },
-                None => name
+                }
+                None => name,
             }
         }
 
@@ -241,24 +275,68 @@ mod azns_registry {
             Ok(primary_domain)
         }
 
+        /// (ADMIN-OPERATION)
+        /// Update the merkle root
+        #[ink(message)]
+        pub fn update_merkle_root(&mut self, new_root: [u8; 32]) -> Result<()> {
+            if self.owner != self.env().caller() {
+                return Err(CallerIsNotOwner);
+            }
+
+            let Some(verifier) = self.whitelisted_address_verifier.as_mut() else {
+                return Err(Error::OnlyDuringWhitelistPhase);
+            };
+            verifier.update_root(new_root);
+
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn verify_proof(
+            &self,
+            account: AccountId,
+            merkle_proof: Option<Vec<[u8; 32]>>,
+        ) -> bool {
+            let Some(merkle_proof) = merkle_proof else {
+                return false;
+            };
+            let mut leaf = [0u8; 32];
+            ink::env::hash::Sha2x256::hash(account.as_ref(), &mut leaf);
+
+            let Some(verifier) = &self.whitelisted_address_verifier else {
+                return false;
+            };
+            verifier.verify_proof(leaf, merkle_proof)
+        }
+
         /// Register specific name with caller as owner.
+        ///
+        /// NOTE: During the whitelist phase, use `register()` method instead.
         #[ink(message, payable)]
         pub fn register_on_behalf_of(
             &mut self,
             name: String,
             recipient: ink::primitives::AccountId,
+            merkle_proof: Option<Vec<[u8; 32]>>,
         ) -> Result<()> {
-            /* Name cannot be empty */
-            if name.is_empty() {
-                return Err(Error::NameEmpty);
-            }
+            // If in whitelist-phase; Verify that the caller is whitelisted
+            if self.is_whitelist_phase() {
+                let caller = self.env().caller();
 
-            /* Name must be legal */
-            if let Some(name_checker) = &self.name_checker {
-                match name_checker.is_name_allowed(name.clone()) {
-                    Ok(_) => (),
-                    Err(_) => return Err(Error::NameNotAllowed),
-                };
+                // Recipient must be the same as caller incase of whitelist-phase
+                if recipient != caller {
+                    return Err(Error::RestrictedDuringWhitelistPhase);
+                }
+
+                // Verify this is the first claim of the user
+                if self.owner_to_names.contains(caller) {
+                    return Err(Error::AlreadyClaimed);
+                }
+
+                // Verify the proof
+                if !self.verify_proof(caller, merkle_proof) {
+                    return Err(Error::InvalidMerkleProof);
+                }
             }
 
             /* Make sure the register is paid for */
@@ -267,49 +345,29 @@ mod azns_registry {
                 return Err(Error::FeeNotPaid);
             }
 
-            /* Ensure domain is not already registered */
-            if self.name_to_owner.contains(&name) {
-                return Err(Error::NameAlreadyExists);
-            }
-
-            /* Set domain owner */
-            self.name_to_owner.insert(&name, &recipient);
-
-            /* Set domain controller */
-            self.name_to_controller.insert(&name, &recipient);
-
-            /* Set resolved domain */
-            self.name_to_address.insert(&name, &recipient);
-
-            /* Update convenience mapping */
-            let previous_names = self.owner_to_names.get(recipient);
-            if let Some(names) = previous_names {
-                let mut new_names = names;
-                new_names.push(name.clone());
-                self.owner_to_names.insert(recipient, &new_names);
-            } else {
-                self.owner_to_names
-                    .insert(recipient, &Vec::from([name.clone()]));
-            }
-
-            /* Emit register event */
-            Self::env().emit_event(Register {
-                name: name.clone(),
-                from: recipient,
-            });
-
-            Ok(())
+            self.register_domain(&name, &recipient)
         }
 
         /// Register specific name with caller as owner.
+        ///
+        /// NOTE: Whitelisted addresses can buy one domain during the whitelist phase by submitting its proof
         #[ink(message, payable)]
-        pub fn register(&mut self, name: String) -> Result<()> {
-            self.register_on_behalf_of(name, Self::env().caller())
+        pub fn register(
+            &mut self,
+            name: String,
+            merkle_proof: Option<Vec<[u8; 32]>>,
+        ) -> Result<()> {
+            self.register_on_behalf_of(name, self.env().caller(), merkle_proof)
         }
 
         /// Release domain from registration.
         #[ink(message)]
         pub fn release(&mut self, name: String) -> Result<()> {
+            // Disabled during whitelist-phase
+            if self.is_whitelist_phase() {
+                return Err(Error::RestrictedDuringWhitelistPhase);
+            }
+
             let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
@@ -364,6 +422,11 @@ mod azns_registry {
         /// Transfer owner to another address.
         #[ink(message)]
         pub fn transfer(&mut self, name: String, to: ink::primitives::AccountId) -> Result<()> {
+            // Transfer is disabled during the whitelist-phase
+            if self.is_whitelist_phase() {
+                return Err(Error::RestrictedDuringWhitelistPhase);
+            }
+
             /* Ensure the caller is the owner of the domain */
             let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
@@ -416,6 +479,27 @@ mod azns_registry {
             Ok(())
         }
 
+        /// (ADMIN-OPERATION)
+        /// Switch from whitelist-phase to public-phase
+        #[ink(message)]
+        pub fn switch_to_public_phase(&mut self) -> Result<()> {
+            if self.owner != self.env().caller() {
+                return Err(CallerIsNotOwner);
+            }
+
+            if self.whitelisted_address_verifier.take().is_some() {
+                self.env().emit_event(PublicPhaseActivated {});
+            }
+            Ok(())
+        }
+
+        /// Returns `true` when contract is in whitelist-phase
+        /// and `false` when it is in public-phase
+        #[ink(message)]
+        pub fn is_whitelist_phase(&self) -> bool {
+            self.whitelisted_address_verifier.is_some()
+        }
+
         /// Get address for specific name.
         #[ink(message)]
         pub fn get_address(&self, name: String) -> ink::primitives::AccountId {
@@ -448,11 +532,63 @@ mod azns_registry {
 
         /// Returns all names the address owns
         #[ink(message)]
-        pub fn get_names_of_address(
+        pub fn get_owned_names_of_address(
             &self,
             owner: ink::primitives::AccountId,
         ) -> Option<Vec<String>> {
             self.owner_to_names.get(owner)
+        }
+
+        fn register_domain(
+            &mut self,
+            name: &str,
+            recipient: &ink::primitives::AccountId,
+        ) -> Result<()> {
+            /* Name cannot be empty */
+            if name.is_empty() {
+                return Err(Error::NameEmpty);
+            }
+
+            /* Name must be legal */
+            if let Some(name_checker) = &self.name_checker {
+                match name_checker.is_name_allowed(name.to_string()) {
+                    Ok(_) => (),
+                    Err(_) => return Err(Error::NameNotAllowed),
+                };
+            }
+
+            /* Ensure domain is not already registered */
+            if self.name_to_owner.contains(name) {
+                return Err(Error::NameAlreadyExists);
+            }
+
+            /* Set domain owner */
+            self.name_to_owner.insert(name, recipient);
+
+            /* Set domain controller */
+            self.name_to_controller.insert(name, recipient);
+
+            /* Set resolved domain */
+            self.name_to_address.insert(name, recipient);
+
+            /* Update convenience mapping */
+            let previous_names = self.owner_to_names.get(recipient);
+            if let Some(names) = previous_names {
+                let mut new_names = names;
+                new_names.push(name.to_string());
+                self.owner_to_names.insert(recipient, &new_names);
+            } else {
+                self.owner_to_names
+                    .insert(recipient, &Vec::from([name.to_string()]));
+            }
+
+            /* Emit register event */
+            Self::env().emit_event(Register {
+                name: name.to_string(),
+                from: *recipient,
+            });
+
+            Ok(())
         }
 
         /// Deletes a name from owner
@@ -512,7 +648,7 @@ mod azns_registry {
             /* Ensure that the address is a controller of the target domain */
             let controller = self.get_controller_or_default(&name);
             if address != controller {
-                return Err(CallerIsNotController);
+                Err(CallerIsNotController)
             } else {
                 Ok(())
             }
@@ -551,7 +687,7 @@ mod tests {
     }
 
     fn get_test_name_service() -> DomainNameService {
-        DomainNameService::new(None, None)
+        DomainNameService::new(None, None, [0u8; 32], None)
     }
 
     #[ink::test]
@@ -565,13 +701,13 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name2.clone()), Ok(()));
+        assert_eq!(contract.register(name2, None), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name3.clone()), Ok(()));
+        assert_eq!(contract.register(name3, None), Ok(()));
 
         /* Now alice owns three domains */
         /* Set the primary domain for alice's address to domain 1 */
@@ -602,10 +738,7 @@ mod tests {
             .set_primary_domain(default_accounts.bob, name.clone())
             .unwrap();
         /* Now the primary domain should not resolve to anything */
-        assert_eq!(
-            contract.get_primary_domain(default_accounts.bob),
-            Ok(name.clone())
-        );
+        assert_eq!(contract.get_primary_domain(default_accounts.bob), Ok(name));
     }
 
     #[ink::test]
@@ -617,14 +750,14 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(
-            contract.get_names_of_address(default_accounts.alice),
+            contract.get_owned_names_of_address(default_accounts.alice),
             Some(Vec::from([name.clone()]))
         );
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name), Err(NameAlreadyExists));
+        assert_eq!(contract.register(name, None), Err(NameAlreadyExists));
     }
 
     #[ink::test]
@@ -638,7 +771,7 @@ mod tests {
         let acc_balance_before_transfer: Balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name), Ok(()));
+        assert_eq!(contract.register(name, None), Ok(()));
         assert_eq!(contract.withdraw(160 ^ 12), Ok(()));
         let acc_balance_after_withdraw: Balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
@@ -659,7 +792,7 @@ mod tests {
         let _acc_balance_before_transfer: Balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name), Ok(()));
+        assert_eq!(contract.register(name, None), Ok(()));
 
         set_next_caller(default_accounts.bob);
         assert_eq!(contract.withdraw(160 ^ 12), Err(CallerIsNotOwner));
@@ -675,15 +808,15 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name), Ok(()));
+        assert_eq!(contract.register(name, None), Ok(()));
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name2), Ok(()));
+        assert_eq!(contract.register(name2, None), Ok(()));
         assert!(contract
-            .get_names_of_address(default_accounts.alice)
+            .get_owned_names_of_address(default_accounts.alice)
             .unwrap()
             .contains(&String::from("test")));
         assert!(contract
-            .get_names_of_address(default_accounts.alice)
+            .get_owned_names_of_address(default_accounts.alice)
             .unwrap()
             .contains(&String::from("test2")));
     }
@@ -697,7 +830,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name), Err(NameEmpty));
+        assert_eq!(contract.register(name, None), Err(NameEmpty));
     }
 
     // TODO: enable this test once we get cross-contract testing working
@@ -710,7 +843,7 @@ mod tests {
     //     let mut contract = get_test_name_service();
     //
     //     set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-    //     assert_eq!(contract.register(name), Err(NameNotAllowed));
+    //     assert_eq!(contract.register(name, None), Err(NameNotAllowed));
     // }
 
     #[ink::test]
@@ -722,8 +855,8 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
-        assert_eq!(contract.register(name), Err(NameAlreadyExists));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
+        assert_eq!(contract.register(name, None), Err(NameAlreadyExists));
     }
 
     #[ink::test]
@@ -734,7 +867,7 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        assert_eq!(contract.register(name), Err(FeeNotPaid));
+        assert_eq!(contract.register(name, None), Err(FeeNotPaid));
     }
 
     #[ink::test]
@@ -746,7 +879,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.alice),
             Ok(())
@@ -754,7 +887,7 @@ mod tests {
         assert_eq!(contract.get_owner(name.clone()), default_accounts.alice);
         assert_eq!(contract.get_address(name.clone()), default_accounts.alice);
         assert_eq!(
-            contract.get_names_of_address(default_accounts.alice),
+            contract.get_owned_names_of_address(default_accounts.alice),
             Some(Vec::from([name.clone()]))
         );
 
@@ -762,14 +895,14 @@ mod tests {
         assert_eq!(contract.get_owner(name.clone()), Default::default());
         assert_eq!(contract.get_address(name.clone()), Default::default());
         assert_eq!(
-            contract.get_names_of_address(default_accounts.alice),
+            contract.get_owned_names_of_address(default_accounts.alice),
             Some(Vec::from([]))
         );
 
         /* Another account can register again*/
         set_next_caller(default_accounts.bob);
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.bob),
             Ok(())
@@ -790,7 +923,7 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        contract.register(name.clone()).unwrap();
+        contract.register(name.clone(), None).unwrap();
 
         // Caller is not controller, `set_address` should fail.
         set_next_caller(accounts.bob);
@@ -829,7 +962,7 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
 
         // Caller is not controller, `set_address` should fail.
         set_next_caller(accounts.bob);
@@ -853,17 +986,17 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name.clone()), Ok(()));
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
 
         // Test transfer of owner.
         assert_eq!(contract.transfer(name.clone(), accounts.bob), Ok(()));
 
         assert_eq!(
-            contract.get_names_of_address(accounts.alice),
+            contract.get_owned_names_of_address(accounts.alice),
             Some(Vec::from([]))
         );
         assert_eq!(
-            contract.get_names_of_address(accounts.bob),
+            contract.get_owned_names_of_address(accounts.bob),
             Some(Vec::from([name.clone()]))
         );
 
@@ -893,7 +1026,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(domain_name.clone()), Ok(()));
+        assert_eq!(contract.register(domain_name.clone(), None), Ok(()));
 
         assert_eq!(
             contract.set_all_records(domain_name.clone(), records.clone()),
@@ -929,4 +1062,24 @@ mod tests {
             Vec::from([("twitter".to_string(), "@newtest".to_string())])
         );
     }
+
+    // TODO: Finish this test once we get cross-contract testing working
+    // #[ink::test]
+    // fn whitelist_phase_works() {
+    //     // 1. Init (whitelist-phase)
+
+    //     // 2. Verify an empty proof fails
+
+    //     // 3. Verify that an invalid proof fails
+
+    //     // 4. Verify that valid proof works and the domain is registered
+
+    //     // 5. Verify a user can claim only one domain during whitelist-phase
+
+    //     // 6. Verify `release()` fails
+
+    //     // 7. Verify `transfer()` fails
+
+    //     // 8. Verify `switch_to_public_phase()` works
+    // }
 }
