@@ -10,6 +10,8 @@ mod merkle_verifier {
 
     #[ink(storage)]
     pub struct MerkleVerifier {
+        /// Admin can update the root
+        admin: AccountId,
         /// Stores the merkle root hash
         root: [u8; 32],
     }
@@ -17,7 +19,16 @@ mod merkle_verifier {
     impl MerkleVerifier {
         #[ink(constructor)]
         pub fn new(root: [u8; 32]) -> Self {
-            Self { root }
+            Self {
+                admin: Self::env().caller(),
+                root,
+            }
+        }
+
+        #[ink(message)]
+        pub fn update_root(&mut self, new_root: [u8; 32]) {
+            assert_eq!(self.env().caller(), self.admin, "Unauthorized call");
+            self.root = new_root;
         }
 
         /// Returns the merkle root
@@ -64,6 +75,31 @@ mod merkle_verifier {
             let merkle_verifier = MerkleVerifier::new(root);
 
             assert_eq!(merkle_verifier.root(), root);
+        }
+
+        #[ink::test]
+        fn update_root_works() {
+            let root = [0xff; 32];
+            let mut merkle_verifier = MerkleVerifier::new(root);
+
+            let new_root = [0x00; 32];
+            merkle_verifier.update_root(new_root);
+
+            assert_eq!(merkle_verifier.root(), new_root);
+        }
+
+        #[ink::test]
+        #[should_panic(expected = "Unauthorized call")]
+        fn only_admin_works() {
+            let root = [0xff; 32];
+            let mut merkle_verifier = MerkleVerifier::new(root);
+
+            // Verify update_root fails
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+
+            let new_root = [0x00; 32];
+            merkle_verifier.update_root(new_root);
         }
 
         // Test that the param ordering should not matter

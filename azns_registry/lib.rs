@@ -275,6 +275,22 @@ mod azns_registry {
             Ok(primary_domain)
         }
 
+        /// (ADMIN-OPERATION)
+        /// Update the merkle root
+        #[ink(message)]
+        pub fn update_merkle_root(&mut self, new_root: [u8; 32]) -> Result<()> {
+            if self.owner != self.env().caller() {
+                return Err(CallerIsNotOwner);
+            }
+
+            let Some(verifier) = self.whitelisted_address_verifier.as_mut() else {
+                return Err(Error::OnlyDuringWhitelistPhase);
+            };
+            verifier.update_root(new_root);
+
+            Ok(())
+        }
+
         #[ink(message)]
         pub fn verify_proof(
             &self,
