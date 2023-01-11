@@ -5,7 +5,7 @@ mod azns_registry {
     use crate::alloc::string::ToString;
     use crate::azns_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, NoResolvedAddress,
-        RecordNotFound, RecursiveParent, WithdrawFailed,
+        RecordNotFound, WithdrawFailed,
     };
     use azns_name_checker::get_domain_price;
     use ink::env::hash::CryptoHash;
@@ -104,8 +104,6 @@ mod azns_registry {
         /// IMPORTANT NOTE: This mapping may be out-of-date, since we don't update it when a resolved address changes, or when a domain is withdrawn.
         /// Only use the get_primary_domain
         address_to_primary_domain: Mapping<ink::primitives::AccountId, String>,
-        /// Tracks if a domain is a namespace
-        domain_to_parent: Mapping<String, String>,
         /// Merkle Verifier used to identifiy whitelisted addresses
         whitelisted_address_verifier: Option<MerkleVerifierRef>,
         /// Names which can be claimed only by the specified user
@@ -136,8 +134,6 @@ mod azns_registry {
         WithdrawFailed,
         /// No resolved address found
         NoResolvedAddress,
-        /// Recursive parents not allowed
-        RecursiveParent,
         /// A user can claim only one domain during the whitelist-phase
         AlreadyClaimed,
         /// The merkle proof is invalid
@@ -199,7 +195,6 @@ mod azns_registry {
                 owner_to_names: Default::default(),
                 additional_info: Default::default(),
                 address_to_primary_domain: Default::default(),
-                domain_to_parent: Default::default(),
                 controller_to_names: Default::default(),
                 resolving_to_address: Default::default(),
                 whitelisted_address_verifier,
@@ -211,30 +206,6 @@ mod azns_registry {
                 contract.add_reserved_domains(set).expect("Infallible");
             }
             contract
-        }
-
-        fn get_name_including_parent(&self, name: String) -> String {
-            match self.domain_to_parent.get(name.clone()) {
-                Some(parent) => {
-                    let mut name_with_parent = name.clone();
-                    name_with_parent.push('.');
-                    name_with_parent.push_str(&parent);
-                    name_with_parent
-                }
-                None => name,
-            }
-        }
-
-        #[ink(message)]
-        pub fn set_parent(&mut self, name: String, parent: String) -> Result<()> {
-            /* Check that the parent does not already have a parent itself */
-            if self.domain_to_parent.contains(parent.clone()) {
-                return Err(RecursiveParent);
-            }
-
-            self.domain_to_parent.insert(name, &parent);
-
-            Ok(())
         }
 
         /// Transfers `value` amount of tokens to the caller.
@@ -309,9 +280,7 @@ mod azns_registry {
         /// Update the merkle root
         #[ink(message)]
         pub fn update_merkle_root(&mut self, new_root: [u8; 32]) -> Result<()> {
-            if self.owner != self.env().caller() {
-                return Err(CallerIsNotOwner);
-            }
+            self.ensure_admin()?;
 
             let Some(verifier) = self.whitelisted_address_verifier.as_mut() else {
                 return Err(Error::OnlyDuringWhitelistPhase);
@@ -566,6 +535,19 @@ mod azns_registry {
 
             self.name_to_controller.insert(&name, &new_controller);
 
+            /* Update controller reverse mapping */
+            /* Remove the name from the old controller */
+
+            /* Add the name to the new controller */
+            if let Some(names) = self.controller_to_names.get(new_controller) {
+                let mut new_names = names;
+                new_names.push(name);
+                self.controller_to_names.insert(new_controller, &new_names);
+            } else {
+                self.controller_to_names
+                    .insert(new_controller, &Vec::from([name.to_string()]));
+            }
+
             Ok(())
         }
 
@@ -573,14 +555,20 @@ mod azns_registry {
         /// Switch from whitelist-phase to public-phase
         #[ink(message)]
         pub fn switch_to_public_phase(&mut self) -> Result<()> {
-            if self.owner != self.env().caller() {
-                return Err(CallerIsNotOwner);
-            }
+            self.ensure_admin()?;
 
             if self.whitelisted_address_verifier.take().is_some() {
                 self.env().emit_event(PublicPhaseActivated {});
             }
             Ok(())
+        }
+
+        fn ensure_admin(&mut self) -> Result<()> {
+            if self.owner != self.env().caller() {
+                Err(CallerIsNotOwner)
+            } else {
+                Ok(())
+            }
         }
 
         /// Returns `true` when contract is in whitelist-phase
@@ -763,6 +751,7 @@ mod azns_registry {
 }
 
 extern crate alloc;
+extern crate core;
 
 #[cfg(test)]
 mod tests {
