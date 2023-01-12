@@ -147,6 +147,7 @@ mod azns_registry {
             name_checker_hash: Option<Hash>,
             merkle_verifier_hash: Option<Hash>,
             merkle_root: [u8; 32],
+            reserved_domains: Option<Vec<(String, Option<AccountId>)>>,
             version: Option<u32>,
         ) -> Self {
             let caller = Self::env().caller();
@@ -174,7 +175,7 @@ mod azns_registry {
                     .expect("failed at instantiating the `MerkleVerifierRef` contract")
             });
 
-            Self {
+            let mut contract = Self {
                 owner: caller,
                 name_checker,
                 name_to_controller: Mapping::default(),
@@ -189,7 +190,13 @@ mod azns_registry {
                 resolving_to_address: Default::default(),
                 whitelisted_address_verifier,
                 reserved_names: Default::default(),
+            };
+
+            // Initializing reserved domains
+            if let Some(set) = reserved_domains {
+                contract.add_reserved_domains(set).expect("Infallible");
             }
+            contract
         }
 
         fn get_name_including_parent(&self, name: String) -> String {
