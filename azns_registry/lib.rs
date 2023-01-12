@@ -94,6 +94,8 @@ mod azns_registry {
         domain_to_parent: Mapping<String, String>,
         /// Merkle Verifier used to identifiy whitelisted addresses
         whitelisted_address_verifier: Option<MerkleVerifierRef>,
+        /// Names which can be claimed only by the specified user
+        reserved_names: Mapping<String, AccountId>,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -130,6 +132,12 @@ mod azns_registry {
         OnlyDuringWhitelistPhase,
         /// Given operation cannot be performed during the whitelist-phase
         RestrictedDuringWhitelistPhase,
+        /// The given domain is reserved and cannot to be bought
+        CannotBuyReservedDomain,
+        /// Cannot claim a non-reserved domain. Consider buying it.
+        NotReservedDomain,
+        /// User is not authorised to claim the given domain
+        NotAuthorised,
     }
 
     impl DomainNameService {
@@ -180,6 +188,7 @@ mod azns_registry {
                 controller_to_names: Default::default(),
                 resolving_to_address: Default::default(),
                 whitelisted_address_verifier,
+                reserved_names: Default::default(),
             }
         }
 
@@ -319,6 +328,23 @@ mod azns_registry {
             recipient: ink::primitives::AccountId,
             merkle_proof: Option<Vec<[u8; 32]>>,
         ) -> Result<()> {
+            /* Name cannot be empty */
+            if name.is_empty() {
+                return Err(Error::NameEmpty);
+            }
+
+            /* Name must be legal */
+            if let Some(name_checker) = &self.name_checker {
+                if name_checker.is_name_allowed(name.clone()) != Ok(true) {
+                    return Err(Error::NameNotAllowed);
+                }
+            }
+
+            // The name must not be a reserved domain
+            if self.reserved_names.contains(&name) {
+                return Err(Error::CannotBuyReservedDomain);
+            }
+
             // If in whitelist-phase; Verify that the caller is whitelisted
             if self.is_whitelist_phase() {
                 let caller = self.env().caller();
@@ -358,6 +384,57 @@ mod azns_registry {
             merkle_proof: Option<Vec<[u8; 32]>>,
         ) -> Result<()> {
             self.register_on_behalf_of(name, self.env().caller(), merkle_proof)
+        }
+
+        /// Allows users to claim their reserved domain at zero cost
+        #[ink(message)]
+        pub fn claim_reserved_domain(&mut self, name: String) -> Result<()> {
+            let caller = self.env().caller();
+
+            let Some(user) = self.reserved_names.get(&name) else {
+                return Err(Error::NotReservedDomain);
+            };
+
+            if caller != user {
+                return Err(Error::NotAuthorised);
+            }
+
+            self.register_domain(&name, &caller).and_then(|_| {
+                // Remove the domain from the list once claimed
+                self.reserved_names.remove(name);
+                Ok(())
+            })
+        }
+
+        /// (ADMIN-OPERATION)
+        /// Reserve domain name for specific addresses
+        // @dev (name, None) denotes that the name is reserved but not tied to any address yet
+        #[ink(message)]
+        pub fn add_reserved_domains(
+            &mut self,
+            set: Vec<(String, Option<AccountId>)>,
+        ) -> Result<()> {
+            if self.owner != self.env().caller() {
+                return Err(CallerIsNotOwner);
+            }
+
+            set.iter().for_each(|(name, addr)| {
+                let addr = addr.unwrap_or(self.default_address);
+                self.reserved_names.insert(&name, &addr);
+            });
+            Ok(())
+        }
+
+        /// (ADMIN-OPERATION)
+        /// Remove given names from the list of reserved domains
+        #[ink(message)]
+        pub fn remove_reserved_domain(&mut self, set: Vec<String>) -> Result<()> {
+            if self.owner != self.env().caller() {
+                return Err(CallerIsNotOwner);
+            }
+
+            set.iter().for_each(|name| self.reserved_names.remove(name));
+            Ok(())
         }
 
         /// Release domain from registration.
@@ -539,24 +616,19 @@ mod azns_registry {
             self.owner_to_names.get(owner)
         }
 
+        /// Returns the address authorized to claim the given name.
+        #[ink(message)]
+        pub fn get_reserved_domain_info(&self, name: String) -> Result<AccountId> {
+            self.reserved_names
+                .get(name)
+                .ok_or(Error::NotReservedDomain)
+        }
+
         fn register_domain(
             &mut self,
             name: &str,
             recipient: &ink::primitives::AccountId,
         ) -> Result<()> {
-            /* Name cannot be empty */
-            if name.is_empty() {
-                return Err(Error::NameEmpty);
-            }
-
-            /* Name must be legal */
-            if let Some(name_checker) = &self.name_checker {
-                match name_checker.is_name_allowed(name.to_string()) {
-                    Ok(_) => (),
-                    Err(_) => return Err(Error::NameNotAllowed),
-                };
-            }
-
             /* Ensure domain is not already registered */
             if self.name_to_owner.contains(name) {
                 return Err(Error::NameAlreadyExists);
