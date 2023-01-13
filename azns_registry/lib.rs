@@ -766,6 +766,7 @@ extern crate alloc;
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use alloc::string::{String, ToString};
     use alloc::vec::Vec;
 
@@ -782,7 +783,7 @@ mod tests {
         NoResolvedAddress,
     };
 
-    use super::*;
+    use super::azns_registry::Error;
 
     fn default_accounts() -> DefaultAccounts<DefaultEnvironment> {
         ink::env::test::default_accounts::<DefaultEnvironment>()
@@ -793,7 +794,7 @@ mod tests {
     }
 
     fn get_test_name_service() -> DomainNameService {
-        DomainNameService::new(None, None, [0u8; 32], None)
+        DomainNameService::new(None, None, [0u8; 32], None, None)
     }
 
     #[ink::test]
@@ -864,6 +865,18 @@ mod tests {
         );
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name, None), Err(NameAlreadyExists));
+
+        // Reserved names cannot be registered
+        let reserved_name = String::from("AlephZero");
+        let reserved_list = vec![(reserved_name.clone(), Some(default_accounts.alice))];
+        contract
+            .add_reserved_domains(reserved_list)
+            .expect("Failed to reserve domain");
+
+        assert_eq!(
+            contract.register(reserved_name, None),
+            Err(Error::CannotBuyReservedDomain)
+        );
     }
 
     #[ink::test]
@@ -936,7 +949,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name, None), Err(NameEmpty));
+        assert_eq!(contract.register(name, None), Err(Error::NameNotAllowed));
     }
 
     // TODO: enable this test once we get cross-contract testing working
@@ -1166,6 +1179,125 @@ mod tests {
         assert_eq!(
             contract.get_all_records(domain_name).unwrap(),
             Vec::from([("twitter".to_string(), "@newtest".to_string())])
+        );
+    }
+
+    #[ink::test]
+    fn add_reserved_domains_works() {
+        let accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        let reserved_name = String::from("AlephZero");
+        let list = vec![(reserved_name.clone(), Some(accounts.alice))];
+
+        assert!(contract.add_reserved_domains(list).is_ok());
+
+        assert_eq!(
+            contract.get_domain_status(reserved_name),
+            azns_registry::DomainStatus::Reserved(accounts.alice),
+        );
+
+        // Invocation from non-admin address fails
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            contract.add_reserved_domains(vec![]),
+            Err(Error::CallerIsNotOwner)
+        );
+    }
+
+    #[ink::test]
+    fn remove_reserved_domains_works() {
+        let accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        let reserved_name = String::from("AlephZero");
+        let list = vec![(reserved_name.clone(), Some(accounts.alice))];
+        assert!(contract.add_reserved_domains(list).is_ok());
+
+        assert_eq!(
+            contract.get_domain_status(reserved_name.clone()),
+            azns_registry::DomainStatus::Reserved(accounts.alice),
+        );
+
+        assert!(contract
+            .remove_reserved_domain(vec![reserved_name.clone()])
+            .is_ok());
+
+        assert_ne!(
+            contract.get_domain_status(reserved_name),
+            azns_registry::DomainStatus::Reserved(accounts.alice),
+        );
+
+        // Invocation from non-admin address fails
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            contract.remove_reserved_domain(vec![]),
+            Err(Error::CallerIsNotOwner)
+        );
+    }
+
+    #[ink::test]
+    fn claim_reserved_domain_works() {
+        let accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        let name = String::from("bob");
+        let reserved_list = vec![(name.clone(), Some(accounts.bob))];
+        contract
+            .add_reserved_domains(reserved_list)
+            .expect("Failed to add reserved domain");
+
+        // Non-reserved domain cannot be claimed
+        assert_eq!(
+            contract.claim_reserved_domain("abcd".to_string()),
+            Err(Error::NotReservedDomain),
+        );
+
+        // Non-authorised user cannot claim reserved domain
+        assert_eq!(
+            contract.claim_reserved_domain(name.clone()),
+            Err(Error::NotAuthorised),
+        );
+
+        // Authorised user can claim domain reserved for them
+        set_next_caller(accounts.bob);
+        assert!(contract.claim_reserved_domain(name.clone()).is_ok());
+
+        assert_eq!(
+            contract.get_domain_status(name),
+            azns_registry::DomainStatus::Registered(accounts.bob),
+        );
+    }
+
+    #[ink::test]
+    fn get_domain_status_works() {
+        let accounts = default_accounts();
+        let reserved_list = vec![("bob".to_string(), Some(accounts.bob))];
+        let mut contract = DomainNameService::new(None, None, [0u8; 32], Some(reserved_list), None);
+
+        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
+        contract
+            .register("alice".to_string(), None)
+            .expect("failed to register domain");
+
+        assert_eq!(
+            contract.get_domain_status("alice".to_string()),
+            azns_registry::DomainStatus::Registered(accounts.alice)
+        );
+
+        assert_eq!(
+            contract.get_domain_status("bob".to_string()),
+            azns_registry::DomainStatus::Reserved(accounts.bob)
+        );
+
+        assert_eq!(
+            contract.get_domain_status("david".to_string()),
+            azns_registry::DomainStatus::Available
+        );
+
+        assert_eq!(
+            contract.get_domain_status("".to_string()),
+            azns_registry::DomainStatus::Unavailable
         );
     }
 
