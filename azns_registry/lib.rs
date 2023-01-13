@@ -18,6 +18,20 @@ mod azns_registry {
 
     pub type Result<T> = core::result::Result<T, Error>;
 
+    /// Different states of a domain
+    #[derive(scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, Debug, PartialEq))]
+    pub enum DomainStatus {
+        /// Domain is registered by the given address
+        Registered(AccountId),
+        /// Domain is reserved for the given address
+        Reserved(AccountId),
+        /// Domain is available for purchase
+        Available,
+        /// Domain has invalid characters/length
+        Unavailable,
+    }
+
     /// Emitted whenever a new name is registered.
     #[ink(event)]
     pub struct Register {
@@ -335,16 +349,8 @@ mod azns_registry {
             recipient: ink::primitives::AccountId,
             merkle_proof: Option<Vec<[u8; 32]>>,
         ) -> Result<()> {
-            /* Name cannot be empty */
-            if name.is_empty() {
-                return Err(Error::NameEmpty);
-            }
-
-            /* Name must be legal */
-            if let Some(name_checker) = &self.name_checker {
-                if name_checker.is_name_allowed(name.clone()) != Ok(true) {
-                    return Err(Error::NameNotAllowed);
-                }
+            if !self.is_name_allowed(&name) {
+                return Err(Error::NameNotAllowed);
             }
 
             // The name must not be a reserved domain
@@ -623,12 +629,18 @@ mod azns_registry {
             self.owner_to_names.get(owner)
         }
 
-        /// Returns the address authorized to claim the given name.
+        /// Returns the current status of the domain
         #[ink(message)]
-        pub fn get_reserved_domain_info(&self, name: String) -> Result<AccountId> {
-            self.reserved_names
-                .get(name)
-                .ok_or(Error::NotReservedDomain)
+        pub fn get_domain_status(&self, name: String) -> DomainStatus {
+            if let Some(user) = self.name_to_owner.get(&name) {
+                DomainStatus::Registered(user)
+            } else if let Some(user) = self.reserved_names.get(&name) {
+                DomainStatus::Reserved(user)
+            } else if self.is_name_allowed(&name) {
+                DomainStatus::Available
+            } else {
+                DomainStatus::Unavailable
+            }
         }
 
         fn register_domain(
@@ -677,6 +689,21 @@ mod azns_registry {
                 new_names.retain(|prevname| prevname.clone() != name);
                 self.owner_to_names.insert(owner, &new_names);
             }
+        }
+
+        fn is_name_allowed(&self, name: &str) -> bool {
+            /* Name cannot be empty */
+            if name.is_empty() {
+                return false;
+            }
+
+            /* Name must be legal */
+            if let Some(name_checker) = &self.name_checker {
+                if name_checker.is_name_allowed(name.to_string()) != Ok(true) {
+                    return false;
+                }
+            }
+            true
         }
 
         /// Gets an arbitrary record by key
