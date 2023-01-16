@@ -13,6 +13,7 @@ merkle_verifier = { path = "../merkle_verifier", default-features = false, featu
 
 scale = { package = "parity-scale-codec", version = "3", default-features = false, features = ["derive"] }
 scale-info = { version = "2.3", default-features = false, features = ["derive"], optional = true }
+itertools = "0.10.5"
 
 [lib]
 name = "azns_registry"

@@ -12,6 +12,7 @@ mod azns_registry {
     use ink::prelude::string::String;
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
+    use itertools::Itertools;
 
     use azns_name_checker::NameCheckerRef;
     use merkle_verifier::MerkleVerifierRef;
@@ -443,6 +444,20 @@ mod azns_registry {
             Self::env().emit_event(Release { name, from: caller });
 
             Ok(())
+        }
+
+        #[ink(message)]
+        pub fn get_names_of_address(&self, address: ink::primitives::AccountId) -> Vec<String> {
+            let resolved_names = self.get_resolving_names_of_address(address);
+            let controlled_names = self.get_controlled_names_of_address(address);
+            let owned_names = self.get_owned_names_of_address(address);
+
+            vec![resolved_names, controlled_names, owned_names]
+                .into_iter()
+                .filter_map(|x| x)
+                .flatten()
+                .unique()
+                .collect()
         }
 
         #[ink(message)]
