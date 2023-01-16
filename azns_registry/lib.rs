@@ -308,7 +308,8 @@ mod azns_registry {
             verifier.verify_proof(leaf, merkle_proof)
         }
 
-        /// Register specific name with caller as owner.
+        /// Register specific name on behalf of some other address.
+        /// Pay the fee, but forward the ownership of the domain to the provided recipient
         ///
         /// NOTE: During the whitelist phase, use `register()` method instead.
         #[ink(message, payable)]
@@ -519,6 +520,14 @@ mod azns_registry {
         }
 
         #[ink(message)]
+        pub fn get_controlled_names_of_address(
+            &self,
+            controller: ink::primitives::AccountId,
+        ) -> Option<Vec<String>> {
+            self.controller_to_names.get(controller)
+        }
+
+        #[ink(message)]
         pub fn set_controller(
             &mut self,
             name: String,
@@ -535,8 +544,12 @@ mod azns_registry {
 
             self.name_to_controller.insert(&name, &new_controller);
 
-            /* Update controller reverse mapping */
             /* Remove the name from the old controller */
+            if let Some(names) = self.controller_to_names.get(caller) {
+                let mut new_names = names;
+                new_names.retain(|x| *x != name);
+                self.controller_to_names.insert(new_controller, &new_names);
+            }
 
             /* Add the name to the new controller */
             if let Some(names) = self.controller_to_names.get(new_controller) {
