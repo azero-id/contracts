@@ -445,6 +445,14 @@ mod azns_registry {
             Ok(())
         }
 
+        #[ink(message)]
+        pub fn get_resolving_names_of_address(
+            &self,
+            address: ink::primitives::AccountId,
+        ) -> Option<Vec<String>> {
+            self.resolving_to_address.get(address)
+        }
+
         /// Set resolved address for specific name.
         #[ink(message)]
         pub fn set_address(
@@ -468,6 +476,25 @@ mod azns_registry {
                         self.address_to_primary_domain.remove(old_address_exists);
                     }
                 }
+            }
+
+            /* Remove the name from the old resolved address */
+            if let Some(old_address) = old_address {
+                if let Some(names) = self.resolving_to_address.get(old_address) {
+                    let mut new_names = names;
+                    new_names.retain(|x| *x != name.clone());
+                    self.resolving_to_address.insert(old_address, &new_names);
+                }
+            }
+
+            /* Add the name to the new resolved address */
+            if let Some(names) = self.controller_to_names.get(new_address) {
+                let mut new_names = names;
+                new_names.push(name.clone());
+                self.resolving_to_address.insert(new_address, &new_names);
+            } else {
+                self.resolving_to_address
+                    .insert(new_address, &Vec::from([name.to_string()]));
             }
 
             Self::env().emit_event(SetAddress {
@@ -548,7 +575,7 @@ mod azns_registry {
             if let Some(names) = self.controller_to_names.get(caller) {
                 let mut new_names = names;
                 new_names.retain(|x| *x != name);
-                self.controller_to_names.insert(new_controller, &new_names);
+                self.controller_to_names.insert(controller, &new_names);
             }
 
             /* Add the name to the new controller */
