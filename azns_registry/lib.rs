@@ -2,17 +2,15 @@
 
 #[ink::contract]
 mod azns_registry {
-    use crate::alloc::string::ToString;
     use crate::azns_registry::Error::{
         CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, NoResolvedAddress,
         RecordNotFound, WithdrawFailed,
     };
     use azns_name_checker::get_domain_price;
     use ink::env::hash::CryptoHash;
-    use ink::prelude::string::String;
+    use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
-    use itertools::Itertools;
 
     use azns_name_checker::NameCheckerRef;
     use merkle_verifier::MerkleVerifierRef;
@@ -452,12 +450,15 @@ mod azns_registry {
             let controlled_names = self.get_controlled_names_of_address(address);
             let owned_names = self.get_owned_names_of_address(address);
 
-            vec![resolved_names, controlled_names, owned_names]
-                .into_iter()
-                .filter_map(|x| x)
-                .flatten()
-                .unique()
-                .collect()
+            // Using BTreeSet to remove duplicates
+            let set: ink::prelude::collections::BTreeSet<String> =
+                [resolved_names, controlled_names, owned_names]
+                    .into_iter()
+                    .filter_map(|x| x)
+                    .flatten()
+                    .collect();
+
+            set.into_iter().collect()
         }
 
         #[ink(message)]
@@ -805,16 +806,12 @@ mod azns_registry {
     }
 }
 
-extern crate alloc;
-extern crate core;
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::string::{String, ToString};
-    use alloc::vec::Vec;
+    use ink::prelude::string::{String, ToString};
+    use ink::prelude::vec::Vec;
 
-    use ink::env::test::DefaultAccounts;
     use ink::env::DefaultEnvironment;
 
     use ink::env::test::*;
