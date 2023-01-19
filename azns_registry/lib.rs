@@ -8,6 +8,7 @@ mod azns_registry {
     };
     use azns_name_checker::get_domain_price;
     use ink::env::hash::CryptoHash;
+    use ink::prelude::borrow::ToOwned;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
