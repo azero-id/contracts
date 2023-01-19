@@ -706,7 +706,7 @@ mod azns_registry {
             /* Set resolved domain */
             self.name_to_address.insert(name, recipient);
 
-            /* Update convenience mapping */
+            /* Update convenience mapping for owned domains */
             let previous_names = self.owner_to_names.get(recipient);
             if let Some(names) = previous_names {
                 let mut new_names = names;
@@ -714,6 +714,16 @@ mod azns_registry {
                 self.owner_to_names.insert(recipient, &new_names);
             } else {
                 self.owner_to_names
+                    .insert(recipient, &Vec::from([name.to_string()]));
+            }
+
+            /* Update convenience mapping for controlled domains */
+            if let Some(names) = self.controller_to_names.get(recipient) {
+                let mut new_names = names;
+                new_names.push(name.to_owned());
+                self.controller_to_names.insert(recipient, &new_names);
+            } else {
+                self.controller_to_names
                     .insert(recipient, &Vec::from([name.to_string()]));
             }
 
@@ -836,6 +846,66 @@ mod tests {
 
     fn get_test_name_service() -> DomainNameService {
         DomainNameService::new(None, None, [0u8; 32], None, None)
+    }
+
+    #[ink::test]
+    fn owner_to_names_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
+        let name2 = String::from("foo");
+        let name3 = String::from("bar");
+
+        set_next_caller(default_accounts.alice);
+        let mut contract = get_test_name_service();
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name2.clone(), None), Ok(()));
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name3.clone(), None), Ok(()));
+
+        /* Now alice owns three domains */
+        /* getting all owned domains should return all three */
+        assert_eq!(
+            contract.get_owned_names_of_address(default_accounts.alice),
+            Some(vec![name, name2, name3])
+        );
+    }
+
+    #[ink::test]
+    fn controller_to_names_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
+        let name2 = String::from("foo");
+        let name3 = String::from("bar");
+
+        set_next_caller(default_accounts.alice);
+        let mut contract = get_test_name_service();
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name2.clone(), None), Ok(()));
+
+        /* Register bar under bob, but set controller to alice */
+        set_next_caller(default_accounts.bob);
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name3.clone(), None), Ok(()));
+        assert_eq!(
+            contract.set_controller(name3.clone(), default_accounts.alice),
+            Ok(())
+        );
+
+        /* Now alice owns three domains */
+        /* getting all owned domains should return all three */
+        assert_eq!(
+            contract.get_controlled_names_of_address(default_accounts.alice),
+            Some(vec![name, name2, name3])
+        );
     }
 
     #[ink::test]
