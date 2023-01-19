@@ -919,6 +919,57 @@ mod tests {
     }
 
     #[ink::test]
+    fn get_names_of_address_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
+        let name2 = String::from("foo");
+        let name3 = String::from("bar");
+
+        set_next_caller(default_accounts.alice);
+        let mut contract = get_test_name_service();
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
+
+        set_next_caller(default_accounts.charlie);
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name2.clone(), None), Ok(()));
+
+        /* getting all domains should return first only */
+        assert_eq!(
+            contract.get_names_of_address(default_accounts.alice),
+            vec![name.clone()]
+        );
+
+        /* Register bar under bob, but set resolved address to alice */
+        set_next_caller(default_accounts.bob);
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name3.clone(), None), Ok(()));
+        assert_eq!(
+            contract.set_address(name3.clone(), default_accounts.alice),
+            Ok(())
+        );
+
+        /* getting all domains should return all three */
+        assert_eq!(
+            contract.get_names_of_address(default_accounts.alice),
+            vec![name3.clone(), name.clone()]
+        );
+
+        set_next_caller(default_accounts.charlie);
+        assert_eq!(
+            contract.set_controller(name2.clone(), default_accounts.alice),
+            Ok(())
+        );
+
+        /* getting all domains should return all three */
+        assert_eq!(
+            contract.get_names_of_address(default_accounts.alice),
+            vec![name3, name2, name]
+        );
+    }
+
+    #[ink::test]
     fn resolving_to_address_works() {
         let default_accounts = default_accounts();
         let name = String::from("test");
@@ -934,7 +985,7 @@ mod tests {
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name2.clone(), None), Ok(()));
 
-        /* getting all owned domains should return first two three */
+        /* getting all domains should return first two */
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
             Some(vec![name.clone(), name2.clone()])
@@ -949,11 +1000,20 @@ mod tests {
             Ok(())
         );
 
-        /* Now alice owns three domains */
-        /* getting all owned domains should return all three */
+        /* Now all three domains resolve to alice's address */
+        /* getting all resolving domains should return all three names */
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(vec![name, name2, name3])
+            Some(vec![name.clone(), name2.clone(), name3.clone()])
+        );
+
+        /* Remove the pointer to alice */
+        assert_eq!(contract.set_address(name3, default_accounts.bob), Ok(()));
+
+        /* getting all resolving domains should return first two names */
+        assert_eq!(
+            contract.get_resolving_names_of_address(default_accounts.alice),
+            Some(vec![name, name2])
         );
     }
 
@@ -1000,10 +1060,10 @@ mod tests {
         );
 
         /* Set bob's primary domain */
-
         contract
             .set_primary_domain(default_accounts.bob, name.clone())
             .unwrap();
+
         /* Now the primary domain should not resolve to anything */
         assert_eq!(contract.get_primary_domain(default_accounts.bob), Ok(name));
     }
