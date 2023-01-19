@@ -727,6 +727,16 @@ mod azns_registry {
                     .insert(recipient, &Vec::from([name.to_string()]));
             }
 
+            /* Update convenience mapping for resolved domains */
+            if let Some(names) = self.resolving_to_address.get(recipient) {
+                let mut new_names = names;
+                new_names.push(name.to_owned());
+                self.resolving_to_address.insert(recipient, &new_names);
+            } else {
+                self.resolving_to_address
+                    .insert(recipient, &Vec::from([name.to_string()]));
+            }
+
             /* Emit register event */
             Self::env().emit_event(Register {
                 name: name.to_string(),
@@ -904,6 +914,45 @@ mod tests {
         /* getting all owned domains should return all three */
         assert_eq!(
             contract.get_controlled_names_of_address(default_accounts.alice),
+            Some(vec![name, name2, name3])
+        );
+    }
+
+    #[ink::test]
+    fn resolving_to_address_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
+        let name2 = String::from("foo");
+        let name3 = String::from("bar");
+
+        set_next_caller(default_accounts.alice);
+        let mut contract = get_test_name_service();
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name.clone(), None), Ok(()));
+
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name2.clone(), None), Ok(()));
+
+        /* getting all owned domains should return first two three */
+        assert_eq!(
+            contract.get_resolving_names_of_address(default_accounts.alice),
+            Some(vec![name.clone(), name2.clone()])
+        );
+
+        /* Register bar under bob, but set resolved address to alice */
+        set_next_caller(default_accounts.bob);
+        set_value_transferred::<DefaultEnvironment>(160 ^ 12);
+        assert_eq!(contract.register(name3.clone(), None), Ok(()));
+        assert_eq!(
+            contract.set_address(name3.clone(), default_accounts.alice),
+            Ok(())
+        );
+
+        /* Now alice owns three domains */
+        /* getting all owned domains should return all three */
+        assert_eq!(
+            contract.get_resolving_names_of_address(default_accounts.alice),
             Some(vec![name, name2, name3])
         );
     }
