@@ -34,7 +34,7 @@ mod azns_registry {
         #[ink(topic)]
         name: String,
         #[ink(topic)]
-        from: ink::primitives::AccountId,
+        from: AccountId,
     }
 
     /// Emitted whenever a name is released
@@ -43,7 +43,7 @@ mod azns_registry {
         #[ink(topic)]
         name: String,
         #[ink(topic)]
-        from: ink::primitives::AccountId,
+        from: AccountId,
     }
 
     /// Emitted whenever an address changes.
@@ -51,11 +51,11 @@ mod azns_registry {
     pub struct SetAddress {
         #[ink(topic)]
         name: String,
-        from: ink::primitives::AccountId,
+        from: AccountId,
         #[ink(topic)]
-        old_address: Option<ink::primitives::AccountId>,
+        old_address: Option<AccountId>,
         #[ink(topic)]
-        new_address: ink::primitives::AccountId,
+        new_address: AccountId,
     }
 
     /// Emitted whenever a name is transferred.
@@ -63,11 +63,11 @@ mod azns_registry {
     pub struct Transfer {
         #[ink(topic)]
         name: String,
-        from: ink::primitives::AccountId,
+        from: AccountId,
         #[ink(topic)]
-        old_owner: Option<ink::primitives::AccountId>,
+        old_owner: Option<AccountId>,
         #[ink(topic)]
-        new_owner: ink::primitives::AccountId,
+        new_owner: AccountId,
     }
 
     /// Emitted when switching from whitelist-phase to public-phase
@@ -78,28 +78,28 @@ mod azns_registry {
     pub struct DomainNameService {
         name_checker: Option<NameCheckerRef>,
         /// A mapping to set a controller for each address
-        name_to_controller: Mapping<String, ink::primitives::AccountId>,
+        name_to_controller: Mapping<String, AccountId>,
         /// A Stringmap to store all name to addresses mapping.
-        name_to_address: Mapping<String, ink::primitives::AccountId>,
+        name_to_address: Mapping<String, AccountId>,
         /// A Stringmap to store all name to owners mapping.
-        name_to_owner: Mapping<String, ink::primitives::AccountId>,
+        name_to_owner: Mapping<String, AccountId>,
         /// The default address.
-        default_address: ink::primitives::AccountId,
+        default_address: AccountId,
         /// Owner of the contract
         /// can withdraw funds
-        owner: ink::primitives::AccountId,
+        owner: AccountId,
         /// All names an address owns
-        owner_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
+        owner_to_names: Mapping<AccountId, Vec<String>>,
         /// All names an address controls
-        controller_to_names: Mapping<ink::primitives::AccountId, Vec<String>>,
+        controller_to_names: Mapping<AccountId, Vec<String>>,
         /// All names that resolve to the given address
-        resolving_to_address: Mapping<ink::primitives::AccountId, Vec<String>>,
+        resolving_to_address: Mapping<AccountId, Vec<String>>,
         /// Metadata
         additional_info: Mapping<String, Vec<(String, String)>>,
         /// Primary domain record
         /// IMPORTANT NOTE: This mapping may be out-of-date, since we don't update it when a resolved address changes, or when a domain is withdrawn.
         /// Only use the get_primary_domain
-        address_to_primary_domain: Mapping<ink::primitives::AccountId, String>,
+        address_to_primary_domain: Mapping<AccountId, String>,
         /// Merkle Verifier used to identifiy whitelisted addresses
         whitelisted_address_verifier: Option<MerkleVerifierRef>,
         /// Names which can be claimed only by the specified user
@@ -231,11 +231,7 @@ mod azns_registry {
 
         /// Set primary domain of an address (reverse record)
         #[ink(message, payable)]
-        pub fn set_primary_domain(
-            &mut self,
-            address: ink::primitives::AccountId,
-            name: String,
-        ) -> Result<()> {
+        pub fn set_primary_domain(&mut self, address: AccountId, name: String) -> Result<()> {
             /* Ensure the caller controls the target name */
             self.ensure_controller(Self::env().caller(), name.clone())?;
 
@@ -255,7 +251,7 @@ mod azns_registry {
         }
 
         #[ink(message)]
-        pub fn get_primary_domain(&self, address: ink::primitives::AccountId) -> Result<String> {
+        pub fn get_primary_domain(&self, address: AccountId) -> Result<String> {
             /* Get the naive primary domain of the address */
             let Some(primary_domain) = self.address_to_primary_domain.get(address) else {
                 /* No primary domain set */
@@ -312,7 +308,7 @@ mod azns_registry {
         pub fn register_on_behalf_of(
             &mut self,
             name: String,
-            recipient: ink::primitives::AccountId,
+            recipient: AccountId,
             merkle_proof: Option<Vec<[u8; 32]>>,
         ) -> Result<()> {
             if !self.is_name_allowed(&name) {
@@ -447,7 +443,7 @@ mod azns_registry {
         }
 
         #[ink(message)]
-        pub fn get_names_of_address(&self, address: ink::primitives::AccountId) -> Vec<String> {
+        pub fn get_names_of_address(&self, address: AccountId) -> Vec<String> {
             let resolved_names = self.get_resolving_names_of_address(address);
             let controlled_names = self.get_controlled_names_of_address(address);
             let owned_names = self.get_owned_names_of_address(address);
@@ -464,20 +460,13 @@ mod azns_registry {
         }
 
         #[ink(message)]
-        pub fn get_resolving_names_of_address(
-            &self,
-            address: ink::primitives::AccountId,
-        ) -> Option<Vec<String>> {
+        pub fn get_resolving_names_of_address(&self, address: AccountId) -> Option<Vec<String>> {
             self.resolving_to_address.get(address)
         }
 
         /// Set resolved address for specific name.
         #[ink(message)]
-        pub fn set_address(
-            &mut self,
-            name: String,
-            new_address: ink::primitives::AccountId,
-        ) -> Result<()> {
+        pub fn set_address(&mut self, name: String, new_address: AccountId) -> Result<()> {
             /* Ensure the caller is the controller */
             let caller = Self::env().caller();
             self.ensure_controller(caller, name.clone())?;
@@ -526,7 +515,7 @@ mod azns_registry {
 
         /// Transfer owner to another address.
         #[ink(message)]
-        pub fn transfer(&mut self, name: String, to: ink::primitives::AccountId) -> Result<()> {
+        pub fn transfer(&mut self, name: String, to: AccountId) -> Result<()> {
             // Transfer is disabled during the whitelist-phase
             if self.is_whitelist_phase() {
                 return Err(Error::RestrictedDuringWhitelistPhase);
@@ -567,17 +556,13 @@ mod azns_registry {
         #[ink(message)]
         pub fn get_controlled_names_of_address(
             &self,
-            controller: ink::primitives::AccountId,
+            controller: AccountId,
         ) -> Option<Vec<String>> {
             self.controller_to_names.get(controller)
         }
 
         #[ink(message)]
-        pub fn set_controller(
-            &mut self,
-            name: String,
-            new_controller: ink::primitives::AccountId,
-        ) -> Result<()> {
+        pub fn set_controller(&mut self, name: String, new_controller: AccountId) -> Result<()> {
             /* Ensure caller is either controller or owner */
             let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
@@ -638,29 +623,29 @@ mod azns_registry {
 
         /// Get address for specific name.
         #[ink(message)]
-        pub fn get_address(&self, name: String) -> ink::primitives::AccountId {
+        pub fn get_address(&self, name: String) -> AccountId {
             self.get_address_or_default(name)
         }
 
         /// Get owner of specific name.
         #[ink(message)]
-        pub fn get_owner(&self, name: String) -> ink::primitives::AccountId {
+        pub fn get_owner(&self, name: String) -> AccountId {
             self.get_owner_or_default(&name)
         }
 
-        pub fn get_controller_or_default(&self, name: &String) -> ink::primitives::AccountId {
+        pub fn get_controller_or_default(&self, name: &String) -> AccountId {
             self.name_to_controller
                 .get(name)
                 .unwrap_or(self.default_address)
         }
 
         /// Returns the owner given the String or the default address.
-        fn get_owner_or_default(&self, name: &String) -> ink::primitives::AccountId {
+        fn get_owner_or_default(&self, name: &String) -> AccountId {
             self.name_to_owner.get(name).unwrap_or(self.default_address)
         }
 
         /// Returns the address given the String or the default address.
-        fn get_address_or_default(&self, name: String) -> ink::primitives::AccountId {
+        fn get_address_or_default(&self, name: String) -> AccountId {
             self.name_to_address
                 .get(&name)
                 .unwrap_or(self.default_address)
@@ -668,10 +653,7 @@ mod azns_registry {
 
         /// Returns all names the address owns
         #[ink(message)]
-        pub fn get_owned_names_of_address(
-            &self,
-            owner: ink::primitives::AccountId,
-        ) -> Option<Vec<String>> {
+        pub fn get_owned_names_of_address(&self, owner: AccountId) -> Option<Vec<String>> {
             self.owner_to_names.get(owner)
         }
 
@@ -689,11 +671,7 @@ mod azns_registry {
             }
         }
 
-        fn register_domain(
-            &mut self,
-            name: &str,
-            recipient: &ink::primitives::AccountId,
-        ) -> Result<()> {
+        fn register_domain(&mut self, name: &str, recipient: &AccountId) -> Result<()> {
             /* Ensure domain is not already registered */
             if self.name_to_owner.contains(name) {
                 return Err(Error::NameAlreadyExists);
@@ -749,7 +727,7 @@ mod azns_registry {
         }
 
         /// Deletes a name from owner
-        fn remove_name_from_owner(&mut self, owner: ink::primitives::AccountId, name: String) {
+        fn remove_name_from_owner(&mut self, owner: AccountId, name: String) {
             if let Some(old_names) = self.owner_to_names.get(owner) {
                 let mut new_names: Vec<String> = old_names;
                 new_names.retain(|prevname| prevname.clone() != name);
@@ -794,7 +772,7 @@ mod azns_registry {
             records: Vec<(String, String)>,
         ) -> Result<()> {
             /* Ensure that the caller is a controller */
-            let caller: ink::primitives::AccountId = Self::env().caller();
+            let caller: AccountId = Self::env().caller();
             self.ensure_controller(caller, name.clone())?;
 
             self.additional_info.insert(name, &records);
@@ -812,11 +790,7 @@ mod azns_registry {
             }
         }
 
-        fn ensure_controller(
-            &self,
-            address: ink::primitives::AccountId,
-            name: String,
-        ) -> Result<()> {
+        fn ensure_controller(&self, address: AccountId, name: String) -> Result<()> {
             /* Ensure that the address is a controller of the target domain */
             let controller = self.get_controller_or_default(&name);
             if address != controller {
@@ -835,13 +809,14 @@ mod tests {
     use ink::env::DefaultEnvironment;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
+    use ink::primitives::AccountId;
     type Balance = u128;
 
     fn default_accounts() -> DefaultAccounts<DefaultEnvironment> {
         ink::env::test::default_accounts::<DefaultEnvironment>()
     }
 
-    fn set_next_caller(caller: ink::primitives::AccountId) {
+    fn set_next_caller(caller: AccountId) {
         set_caller::<DefaultEnvironment>(caller);
     }
 
