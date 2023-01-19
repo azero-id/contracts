@@ -90,7 +90,7 @@ mod azns_registry {
         /// A String map to store all name to addresses mapping.
         name_to_address: Mapping<String, AccountId>,
         /// Metadata
-        additional_info: Mapping<String, Vec<(String, String)>>,
+        metadata: Mapping<String, Vec<(String, String)>>,
 
         /// All names an address owns
         owner_to_names: Mapping<AccountId, Vec<String>>,
@@ -191,7 +191,7 @@ mod azns_registry {
                 name_to_owner: Mapping::default(),
                 default_address: Default::default(),
                 owner_to_names: Default::default(),
-                additional_info: Default::default(),
+                metadata: Default::default(),
                 address_to_primary_domain: Default::default(),
                 controller_to_names: Default::default(),
                 resolving_to_address: Default::default(),
@@ -310,7 +310,7 @@ mod azns_registry {
             self.name_to_address.remove(&name);
             self.remove_name_from_owner(&caller, &name);
             self.name_to_controller.remove(&name);
-            self.additional_info.remove(&name);
+            self.metadata.remove(&name);
 
             Self::env().emit_event(Release { name, from: caller });
 
@@ -471,7 +471,7 @@ mod azns_registry {
             let caller: AccountId = Self::env().caller();
             self.ensure_controller(&caller, &name)?;
 
-            self.additional_info.insert(name, &records);
+            self.metadata.insert(name, &records);
 
             Ok(())
         }
@@ -504,8 +504,8 @@ mod azns_registry {
 
         /// Gets all records
         #[ink(message)]
-        pub fn get_all_records(&self, name: String) -> Result<Vec<(String, String)>> {
-            if let Some(info) = self.additional_info.get(name) {
+        pub fn get_metadata(&self, name: String) -> Result<Vec<(String, String)>> {
+            if let Some(info) = self.metadata.get(name) {
                 Ok(info)
             } else {
                 Err(Error::NoRecordsForAddress)
@@ -514,8 +514,8 @@ mod azns_registry {
 
         /// Gets an arbitrary record by key
         #[ink(message)]
-        pub fn get_record(&self, name: String, key: String) -> Result<String> {
-            return if let Some(info) = self.additional_info.get(name) {
+        pub fn get_metadata_by_key(&self, name: String, key: String) -> Result<String> {
+            return if let Some(info) = self.metadata.get(name) {
                 if let Some(value) = info.iter().find(|tuple| tuple.0 == key) {
                     Ok(value.clone().1)
                 } else {
@@ -1339,7 +1339,7 @@ mod tests {
     }
 
     #[ink::test]
-    fn additional_data_works() {
+    fn metadata_works() {
         let accounts = default_accounts();
         let key = String::from("twitter");
         let value = String::from("@test");
@@ -1359,7 +1359,7 @@ mod tests {
         );
         assert_eq!(
             contract
-                .get_record(domain_name.clone(), key.clone())
+                .get_metadata_by_key(domain_name.clone(), key.clone())
                 .unwrap(),
             value
         );
@@ -1370,7 +1370,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract.get_record(domain_name.clone(), key).unwrap(),
+            contract.get_metadata_by_key(domain_name.clone(), key).unwrap(),
             value
         );
 
@@ -1383,7 +1383,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract.get_all_records(domain_name).unwrap(),
+            contract.get_metadata(domain_name).unwrap(),
             Vec::from([("twitter".to_string(), "@newtest".to_string())])
         );
     }
