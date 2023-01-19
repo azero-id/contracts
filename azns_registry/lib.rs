@@ -76,34 +76,36 @@ mod azns_registry {
 
     #[ink(storage)]
     pub struct DomainNameService {
-        name_checker: Option<NameCheckerRef>,
-        /// A mapping to set a controller for each address
-        name_to_controller: Mapping<String, AccountId>,
-        /// A Stringmap to store all name to addresses mapping.
-        name_to_address: Mapping<String, AccountId>,
-        /// A Stringmap to store all name to owners mapping.
-        name_to_owner: Mapping<String, AccountId>,
+        /// Owner of the contract can withdraw funds
+        owner: AccountId,
         /// The default address.
         default_address: AccountId,
-        /// Owner of the contract
-        /// can withdraw funds
-        owner: AccountId,
+        /// Names which can be claimed only by the specified user
+        reserved_names: Mapping<String, AccountId>,
+
+        /// A String map to store all name to owners mapping.
+        name_to_owner: Mapping<String, AccountId>,
+        /// A mapping to set a controller for each address
+        name_to_controller: Mapping<String, AccountId>,
+        /// A String map to store all name to addresses mapping.
+        name_to_address: Mapping<String, AccountId>,
+        /// Metadata
+        additional_info: Mapping<String, Vec<(String, String)>>,
+
         /// All names an address owns
         owner_to_names: Mapping<AccountId, Vec<String>>,
         /// All names an address controls
         controller_to_names: Mapping<AccountId, Vec<String>>,
         /// All names that resolve to the given address
         resolving_to_address: Mapping<AccountId, Vec<String>>,
-        /// Metadata
-        additional_info: Mapping<String, Vec<(String, String)>>,
         /// Primary domain record
         /// IMPORTANT NOTE: This mapping may be out-of-date, since we don't update it when a resolved address changes, or when a domain is withdrawn.
         /// Only use the get_primary_domain
         address_to_primary_domain: Mapping<AccountId, String>,
+
+        name_checker: Option<NameCheckerRef>,
         /// Merkle Verifier used to identifiy whitelisted addresses
         whitelisted_address_verifier: Option<MerkleVerifierRef>,
-        /// Names which can be claimed only by the specified user
-        reserved_names: Mapping<String, AccountId>,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -204,102 +206,6 @@ mod azns_registry {
             contract
         }
 
-        /// Transfers `value` amount of tokens to the caller.
-        /// Used for withdrawing funds from the main contract to the MultiSig
-        ///
-        /// # Errors
-        ///
-        /// - Panics in case the requested transfer exceeds the contract balance.
-        /// - Panics in case the requested transfer would have brought this
-        ///   contract's balance below the minimum balance (i.e. the chain's
-        ///   existential deposit).
-        /// - Panics in case the transfer failed for another reason.
-        #[ink(message)]
-        pub fn withdraw(&mut self, value: Balance) -> Result<()> {
-            if self.owner != Self::env().caller() {
-                return Err(Error::CallerIsNotOwner);
-            }
-
-            assert!(value <= Self::env().balance(), "insufficient funds!");
-
-            if Self::env().transfer(Self::env().caller(), value).is_err() {
-                return Err(Error::WithdrawFailed);
-            }
-
-            Ok(())
-        }
-
-        /// Set primary domain of an address (reverse record)
-        #[ink(message, payable)]
-        pub fn set_primary_domain(&mut self, address: AccountId, name: String) -> Result<()> {
-            /* Ensure the caller controls the target name */
-            self.ensure_controller(Self::env().caller(), name.clone())?;
-
-            /* Ensure the target name resolves to something */
-            let Some(resolved) = self.name_to_address.get(name.clone()) else {
-                return Err(Error::NoResolvedAddress);
-             };
-
-            /* Ensure the target name resolves to the address */
-            if resolved != address {
-                return Err(Error::NoResolvedAddress);
-            }
-
-            self.address_to_primary_domain.insert(address, &name);
-
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn get_primary_domain(&self, address: AccountId) -> Result<String> {
-            /* Get the naive primary domain of the address */
-            let Some(primary_domain) = self.address_to_primary_domain.get(address) else {
-                /* No primary domain set */
-                return Err(Error::NoResolvedAddress);
-            };
-
-            /* Check that the primary domain actually resolves to the claimed address */
-            let resolved_address = self.get_address(primary_domain.clone());
-            if resolved_address != address {
-                /* Resolved address is no longer valid */
-                return Err(Error::NoResolvedAddress);
-            }
-
-            Ok(primary_domain)
-        }
-
-        /// (ADMIN-OPERATION)
-        /// Update the merkle root
-        #[ink(message)]
-        pub fn update_merkle_root(&mut self, new_root: [u8; 32]) -> Result<()> {
-            self.ensure_admin()?;
-
-            let Some(verifier) = self.whitelisted_address_verifier.as_mut() else {
-                return Err(Error::OnlyDuringWhitelistPhase);
-            };
-            verifier.update_root(new_root);
-
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn verify_proof(
-            &self,
-            account: AccountId,
-            merkle_proof: Option<Vec<[u8; 32]>>,
-        ) -> bool {
-            let Some(merkle_proof) = merkle_proof else {
-                return false;
-            };
-            let mut leaf = [0u8; 32];
-            ink::env::hash::Sha2x256::hash(account.as_ref(), &mut leaf);
-
-            let Some(verifier) = &self.whitelisted_address_verifier else {
-                return false;
-            };
-            verifier.verify_proof(leaf, merkle_proof)
-        }
-
         /// Register specific name on behalf of some other address.
         /// Pay the fee, but forward the ownership of the domain to the provided recipient
         ///
@@ -386,37 +292,6 @@ mod azns_registry {
             })
         }
 
-        /// (ADMIN-OPERATION)
-        /// Reserve domain name for specific addresses
-        // @dev (name, None) denotes that the name is reserved but not tied to any address yet
-        #[ink(message)]
-        pub fn add_reserved_domains(
-            &mut self,
-            set: Vec<(String, Option<AccountId>)>,
-        ) -> Result<()> {
-            if self.owner != self.env().caller() {
-                return Err(Error::CallerIsNotOwner);
-            }
-
-            set.iter().for_each(|(name, addr)| {
-                let addr = addr.unwrap_or(self.default_address);
-                self.reserved_names.insert(&name, &addr);
-            });
-            Ok(())
-        }
-
-        /// (ADMIN-OPERATION)
-        /// Remove given names from the list of reserved domains
-        #[ink(message)]
-        pub fn remove_reserved_domain(&mut self, set: Vec<String>) -> Result<()> {
-            if self.owner != self.env().caller() {
-                return Err(Error::CallerIsNotOwner);
-            }
-
-            set.iter().for_each(|name| self.reserved_names.remove(name));
-            Ok(())
-        }
-
         /// Release domain from registration.
         #[ink(message)]
         pub fn release(&mut self, name: String) -> Result<()> {
@@ -442,26 +317,65 @@ mod azns_registry {
             Ok(())
         }
 
+        /// Transfer owner to another address.
         #[ink(message)]
-        pub fn get_names_of_address(&self, address: AccountId) -> Vec<String> {
-            let resolved_names = self.get_resolving_names_of_address(address);
-            let controlled_names = self.get_controlled_names_of_address(address);
-            let owned_names = self.get_owned_names_of_address(address);
+        pub fn transfer(&mut self, name: String, to: AccountId) -> Result<()> {
+            // Transfer is disabled during the whitelist-phase
+            if self.is_whitelist_phase() {
+                return Err(Error::RestrictedDuringWhitelistPhase);
+            }
 
-            // Using BTreeSet to remove duplicates
-            let set: ink::prelude::collections::BTreeSet<String> =
-                [resolved_names, controlled_names, owned_names]
-                    .into_iter()
-                    .filter_map(|x| x)
-                    .flatten()
-                    .collect();
+            /* Ensure the caller is the owner of the domain */
+            let caller = Self::env().caller();
+            let owner = self.get_owner_or_default(&name);
+            if caller != owner {
+                return Err(Error::CallerIsNotOwner);
+            }
 
-            set.into_iter().collect()
+            /* Change owner */
+            let old_owner = self.name_to_owner.get(&name);
+            self.name_to_owner.insert(&name, &to);
+
+            /* Remove from reverse search and add again */
+            self.remove_name_from_owner(caller, name.clone());
+            let previous_names = self.owner_to_names.get(to);
+            if let Some(names) = previous_names {
+                let mut new_names = names;
+                new_names.push(name.clone());
+                self.owner_to_names.insert(to, &new_names);
+            } else {
+                self.owner_to_names.insert(to, &Vec::from([name.clone()]));
+            }
+
+            Self::env().emit_event(Transfer {
+                name,
+                from: caller,
+                old_owner,
+                new_owner: to,
+            });
+
+            Ok(())
         }
 
-        #[ink(message)]
-        pub fn get_resolving_names_of_address(&self, address: AccountId) -> Option<Vec<String>> {
-            self.resolving_to_address.get(address)
+        /// Set primary domain of an address (reverse record)
+        #[ink(message, payable)]
+        pub fn set_primary_domain(&mut self, address: AccountId, name: String) -> Result<()> {
+            /* Ensure the caller controls the target name */
+            self.ensure_controller(Self::env().caller(), name.clone())?;
+
+            /* Ensure the target name resolves to something */
+            let Some(resolved) = self.name_to_address.get(name.clone()) else {
+                return Err(Error::NoResolvedAddress);
+             };
+
+            /* Ensure the target name resolves to the address */
+            if resolved != address {
+                return Err(Error::NoResolvedAddress);
+            }
+
+            self.address_to_primary_domain.insert(address, &name);
+
+            Ok(())
         }
 
         /// Set resolved address for specific name.
@@ -513,54 +427,6 @@ mod azns_registry {
             Ok(())
         }
 
-        /// Transfer owner to another address.
-        #[ink(message)]
-        pub fn transfer(&mut self, name: String, to: AccountId) -> Result<()> {
-            // Transfer is disabled during the whitelist-phase
-            if self.is_whitelist_phase() {
-                return Err(Error::RestrictedDuringWhitelistPhase);
-            }
-
-            /* Ensure the caller is the owner of the domain */
-            let caller = Self::env().caller();
-            let owner = self.get_owner_or_default(&name);
-            if caller != owner {
-                return Err(Error::CallerIsNotOwner);
-            }
-
-            /* Change owner */
-            let old_owner = self.name_to_owner.get(&name);
-            self.name_to_owner.insert(&name, &to);
-
-            /* Remove from reverse search and add again */
-            self.remove_name_from_owner(caller, name.clone());
-            let previous_names = self.owner_to_names.get(to);
-            if let Some(names) = previous_names {
-                let mut new_names = names;
-                new_names.push(name.clone());
-                self.owner_to_names.insert(to, &new_names);
-            } else {
-                self.owner_to_names.insert(to, &Vec::from([name.clone()]));
-            }
-
-            Self::env().emit_event(Transfer {
-                name,
-                from: caller,
-                old_owner,
-                new_owner: to,
-            });
-
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn get_controlled_names_of_address(
-            &self,
-            controller: AccountId,
-        ) -> Option<Vec<String>> {
-            self.controller_to_names.get(controller)
-        }
-
         #[ink(message)]
         pub fn set_controller(&mut self, name: String, new_controller: AccountId) -> Result<()> {
             /* Ensure caller is either controller or owner */
@@ -594,67 +460,20 @@ mod azns_registry {
             Ok(())
         }
 
-        /// (ADMIN-OPERATION)
-        /// Switch from whitelist-phase to public-phase
+        /// Sets all records
         #[ink(message)]
-        pub fn switch_to_public_phase(&mut self) -> Result<()> {
-            self.ensure_admin()?;
+        pub fn set_all_records(
+            &mut self,
+            name: String,
+            records: Vec<(String, String)>,
+        ) -> Result<()> {
+            /* Ensure that the caller is a controller */
+            let caller: AccountId = Self::env().caller();
+            self.ensure_controller(caller, name.clone())?;
 
-            if self.whitelisted_address_verifier.take().is_some() {
-                self.env().emit_event(PublicPhaseActivated {});
-            }
+            self.additional_info.insert(name, &records);
+
             Ok(())
-        }
-
-        fn ensure_admin(&mut self) -> Result<()> {
-            if self.owner != self.env().caller() {
-                Err(Error::CallerIsNotOwner)
-            } else {
-                Ok(())
-            }
-        }
-
-        /// Returns `true` when contract is in whitelist-phase
-        /// and `false` when it is in public-phase
-        #[ink(message)]
-        pub fn is_whitelist_phase(&self) -> bool {
-            self.whitelisted_address_verifier.is_some()
-        }
-
-        /// Get address for specific name.
-        #[ink(message)]
-        pub fn get_address(&self, name: String) -> AccountId {
-            self.get_address_or_default(name)
-        }
-
-        /// Get owner of specific name.
-        #[ink(message)]
-        pub fn get_owner(&self, name: String) -> AccountId {
-            self.get_owner_or_default(&name)
-        }
-
-        pub fn get_controller_or_default(&self, name: &String) -> AccountId {
-            self.name_to_controller
-                .get(name)
-                .unwrap_or(self.default_address)
-        }
-
-        /// Returns the owner given the String or the default address.
-        fn get_owner_or_default(&self, name: &String) -> AccountId {
-            self.name_to_owner.get(name).unwrap_or(self.default_address)
-        }
-
-        /// Returns the address given the String or the default address.
-        fn get_address_or_default(&self, name: String) -> AccountId {
-            self.name_to_address
-                .get(&name)
-                .unwrap_or(self.default_address)
-        }
-
-        /// Returns all names the address owns
-        #[ink(message)]
-        pub fn get_owned_names_of_address(&self, owner: AccountId) -> Option<Vec<String>> {
-            self.owner_to_names.get(owner)
         }
 
         /// Returns the current status of the domain
@@ -668,6 +487,213 @@ mod azns_registry {
                 DomainStatus::Available
             } else {
                 DomainStatus::Unavailable
+            }
+        }
+
+        /// Get owner of specific name.
+        #[ink(message)]
+        pub fn get_owner(&self, name: String) -> AccountId {
+            self.get_owner_or_default(&name)
+        }
+
+        /// Get address for specific name.
+        #[ink(message)]
+        pub fn get_address(&self, name: String) -> AccountId {
+            self.get_address_or_default(name)
+        }
+
+        /// Gets all records
+        #[ink(message)]
+        pub fn get_all_records(&self, name: String) -> Result<Vec<(String, String)>> {
+            if let Some(info) = self.additional_info.get(name) {
+                Ok(info)
+            } else {
+                Err(Error::NoRecordsForAddress)
+            }
+        }
+
+        /// Gets an arbitrary record by key
+        #[ink(message)]
+        pub fn get_record(&self, name: String, key: String) -> Result<String> {
+            return if let Some(info) = self.additional_info.get(name) {
+                if let Some(value) = info.iter().find(|tuple| tuple.0 == key) {
+                    Ok(value.clone().1)
+                } else {
+                    Err(Error::RecordNotFound)
+                }
+            } else {
+                Err(Error::NoRecordsForAddress)
+            };
+        }
+
+        /// Returns all names the address owns
+        #[ink(message)]
+        pub fn get_owned_names_of_address(&self, owner: AccountId) -> Option<Vec<String>> {
+            self.owner_to_names.get(owner)
+        }
+
+        #[ink(message)]
+        pub fn get_controlled_names_of_address(
+            &self,
+            controller: AccountId,
+        ) -> Option<Vec<String>> {
+            self.controller_to_names.get(controller)
+        }
+
+        #[ink(message)]
+        pub fn get_resolving_names_of_address(&self, address: AccountId) -> Option<Vec<String>> {
+            self.resolving_to_address.get(address)
+        }
+
+        #[ink(message)]
+        pub fn get_primary_domain(&self, address: AccountId) -> Result<String> {
+            /* Get the naive primary domain of the address */
+            let Some(primary_domain) = self.address_to_primary_domain.get(address) else {
+                /* No primary domain set */
+                return Err(Error::NoResolvedAddress);
+            };
+
+            /* Check that the primary domain actually resolves to the claimed address */
+            let resolved_address = self.get_address(primary_domain.clone());
+            if resolved_address != address {
+                /* Resolved address is no longer valid */
+                return Err(Error::NoResolvedAddress);
+            }
+
+            Ok(primary_domain)
+        }
+
+        #[ink(message)]
+        pub fn get_names_of_address(&self, address: AccountId) -> Vec<String> {
+            let resolved_names = self.get_resolving_names_of_address(address);
+            let controlled_names = self.get_controlled_names_of_address(address);
+            let owned_names = self.get_owned_names_of_address(address);
+
+            // Using BTreeSet to remove duplicates
+            let set: ink::prelude::collections::BTreeSet<String> =
+                [resolved_names, controlled_names, owned_names]
+                    .into_iter()
+                    .filter_map(|x| x)
+                    .flatten()
+                    .collect();
+
+            set.into_iter().collect()
+        }
+
+        /// Returns `true` when contract is in whitelist-phase
+        /// and `false` when it is in public-phase
+        #[ink(message)]
+        pub fn is_whitelist_phase(&self) -> bool {
+            self.whitelisted_address_verifier.is_some()
+        }
+
+        #[ink(message)]
+        pub fn verify_proof(
+            &self,
+            account: AccountId,
+            merkle_proof: Option<Vec<[u8; 32]>>,
+        ) -> bool {
+            let Some(merkle_proof) = merkle_proof else {
+                return false;
+            };
+            let mut leaf = [0u8; 32];
+            ink::env::hash::Sha2x256::hash(account.as_ref(), &mut leaf);
+
+            let Some(verifier) = &self.whitelisted_address_verifier else {
+                return false;
+            };
+            verifier.verify_proof(leaf, merkle_proof)
+        }
+
+        /// (ADMIN-OPERATION)
+        /// Transfers `value` amount of tokens to the caller.
+        #[ink(message)]
+        pub fn withdraw(&mut self, value: Balance) -> Result<()> {
+            if self.owner != Self::env().caller() {
+                return Err(Error::CallerIsNotOwner);
+            }
+
+            assert!(value <= Self::env().balance(), "insufficient funds!");
+
+            if Self::env().transfer(Self::env().caller(), value).is_err() {
+                return Err(Error::WithdrawFailed);
+            }
+
+            Ok(())
+        }
+
+        /// (ADMIN-OPERATION)
+        /// Update the merkle root
+        #[ink(message)]
+        pub fn update_merkle_root(&mut self, new_root: [u8; 32]) -> Result<()> {
+            self.ensure_admin()?;
+
+            let Some(verifier) = self.whitelisted_address_verifier.as_mut() else {
+                return Err(Error::OnlyDuringWhitelistPhase);
+            };
+            verifier.update_root(new_root);
+
+            Ok(())
+        }
+
+        /// (ADMIN-OPERATION)
+        /// Switch from whitelist-phase to public-phase
+        #[ink(message)]
+        pub fn switch_to_public_phase(&mut self) -> Result<()> {
+            self.ensure_admin()?;
+
+            if self.whitelisted_address_verifier.take().is_some() {
+                self.env().emit_event(PublicPhaseActivated {});
+            }
+            Ok(())
+        }
+
+        /// (ADMIN-OPERATION)
+        /// Reserve domain name for specific addresses
+        // @dev (name, None) denotes that the name is reserved but not tied to any address yet
+        #[ink(message)]
+        pub fn add_reserved_domains(
+            &mut self,
+            set: Vec<(String, Option<AccountId>)>,
+        ) -> Result<()> {
+            if self.owner != self.env().caller() {
+                return Err(Error::CallerIsNotOwner);
+            }
+
+            set.iter().for_each(|(name, addr)| {
+                let addr = addr.unwrap_or(self.default_address);
+                self.reserved_names.insert(&name, &addr);
+            });
+            Ok(())
+        }
+
+        /// (ADMIN-OPERATION)
+        /// Remove given names from the list of reserved domains
+        #[ink(message)]
+        pub fn remove_reserved_domain(&mut self, set: Vec<String>) -> Result<()> {
+            if self.owner != self.env().caller() {
+                return Err(Error::CallerIsNotOwner);
+            }
+
+            set.iter().for_each(|name| self.reserved_names.remove(name));
+            Ok(())
+        }
+
+        fn ensure_admin(&mut self) -> Result<()> {
+            if self.owner != self.env().caller() {
+                Err(Error::CallerIsNotOwner)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn ensure_controller(&self, address: AccountId, name: String) -> Result<()> {
+            /* Ensure that the address is a controller of the target domain */
+            let controller = self.get_controller_or_default(&name);
+            if address != controller {
+                Err(Error::CallerIsNotController)
+            } else {
+                Ok(())
             }
         }
 
@@ -750,54 +776,22 @@ mod azns_registry {
             true
         }
 
-        /// Gets an arbitrary record by key
-        #[ink(message)]
-        pub fn get_record(&self, name: String, key: String) -> Result<String> {
-            return if let Some(info) = self.additional_info.get(name) {
-                if let Some(value) = info.iter().find(|tuple| tuple.0 == key) {
-                    Ok(value.clone().1)
-                } else {
-                    Err(Error::RecordNotFound)
-                }
-            } else {
-                Err(Error::NoRecordsForAddress)
-            };
+        /// Returns the owner given the String or the default address.
+        fn get_owner_or_default(&self, name: &String) -> AccountId {
+            self.name_to_owner.get(name).unwrap_or(self.default_address)
         }
 
-        /// Sets all records
-        #[ink(message)]
-        pub fn set_all_records(
-            &mut self,
-            name: String,
-            records: Vec<(String, String)>,
-        ) -> Result<()> {
-            /* Ensure that the caller is a controller */
-            let caller: AccountId = Self::env().caller();
-            self.ensure_controller(caller, name.clone())?;
-
-            self.additional_info.insert(name, &records);
-
-            Ok(())
+        fn get_controller_or_default(&self, name: &String) -> AccountId {
+            self.name_to_controller
+                .get(name)
+                .unwrap_or(self.default_address)
         }
 
-        /// Gets all records
-        #[ink(message)]
-        pub fn get_all_records(&self, name: String) -> Result<Vec<(String, String)>> {
-            if let Some(info) = self.additional_info.get(name) {
-                Ok(info)
-            } else {
-                Err(Error::NoRecordsForAddress)
-            }
-        }
-
-        fn ensure_controller(&self, address: AccountId, name: String) -> Result<()> {
-            /* Ensure that the address is a controller of the target domain */
-            let controller = self.get_controller_or_default(&name);
-            if address != controller {
-                Err(Error::CallerIsNotController)
-            } else {
-                Ok(())
-            }
+        /// Returns the address given the String or the default address.
+        fn get_address_or_default(&self, name: String) -> AccountId {
+            self.name_to_address
+                .get(&name)
+                .unwrap_or(self.default_address)
         }
     }
 }
