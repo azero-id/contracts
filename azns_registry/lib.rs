@@ -308,7 +308,7 @@ mod azns_registry {
 
             self.name_to_owner.remove(&name);
             self.name_to_address.remove(&name);
-            self.remove_name_from_owner(caller, name.clone());
+            self.remove_name_from_owner(&caller, &name);
             self.name_to_controller.remove(&name);
             self.additional_info.remove(&name);
 
@@ -337,7 +337,7 @@ mod azns_registry {
             self.name_to_owner.insert(&name, &to);
 
             /* Remove from reverse search and add again */
-            self.remove_name_from_owner(caller, name.clone());
+            self.remove_name_from_owner(&caller, &name);
             let previous_names = self.owner_to_names.get(to);
             if let Some(names) = previous_names {
                 let mut new_names = names;
@@ -361,7 +361,7 @@ mod azns_registry {
         #[ink(message, payable)]
         pub fn set_primary_domain(&mut self, address: AccountId, name: String) -> Result<()> {
             /* Ensure the caller controls the target name */
-            self.ensure_controller(Self::env().caller(), name.clone())?;
+            self.ensure_controller(&Self::env().caller(), &name)?;
 
             /* Ensure the target name resolves to something */
             let Some(resolved) = self.name_to_address.get(name.clone()) else {
@@ -383,7 +383,7 @@ mod azns_registry {
         pub fn set_address(&mut self, name: String, new_address: AccountId) -> Result<()> {
             /* Ensure the caller is the controller */
             let caller = Self::env().caller();
-            self.ensure_controller(caller, name.clone())?;
+            self.ensure_controller(&caller, &name)?;
 
             let old_address = self.name_to_address.get(&name);
             self.name_to_address.insert(&name, &new_address);
@@ -469,7 +469,7 @@ mod azns_registry {
         ) -> Result<()> {
             /* Ensure that the caller is a controller */
             let caller: AccountId = Self::env().caller();
-            self.ensure_controller(caller, name.clone())?;
+            self.ensure_controller(&caller, &name)?;
 
             self.additional_info.insert(name, &records);
 
@@ -499,7 +499,7 @@ mod azns_registry {
         /// Get address for specific name.
         #[ink(message)]
         pub fn get_address(&self, name: String) -> AccountId {
-            self.get_address_or_default(name)
+            self.get_address_or_default(&name)
         }
 
         /// Gets all records
@@ -687,10 +687,10 @@ mod azns_registry {
             }
         }
 
-        fn ensure_controller(&self, address: AccountId, name: String) -> Result<()> {
+        fn ensure_controller(&self, address: &AccountId, name: &str) -> Result<()> {
             /* Ensure that the address is a controller of the target domain */
             let controller = self.get_controller_or_default(&name);
-            if address != controller {
+            if address != &controller {
                 Err(Error::CallerIsNotController)
             } else {
                 Ok(())
@@ -753,10 +753,10 @@ mod azns_registry {
         }
 
         /// Deletes a name from owner
-        fn remove_name_from_owner(&mut self, owner: AccountId, name: String) {
+        fn remove_name_from_owner(&mut self, owner: &AccountId, name: &str) {
             if let Some(old_names) = self.owner_to_names.get(owner) {
                 let mut new_names: Vec<String> = old_names;
-                new_names.retain(|prevname| prevname.clone() != name);
+                new_names.retain(|prevname| prevname != name);
                 self.owner_to_names.insert(owner, &new_names);
             }
         }
@@ -777,20 +777,20 @@ mod azns_registry {
         }
 
         /// Returns the owner given the String or the default address.
-        fn get_owner_or_default(&self, name: &String) -> AccountId {
+        fn get_owner_or_default(&self, name: &str) -> AccountId {
             self.name_to_owner.get(name).unwrap_or(self.default_address)
         }
 
-        fn get_controller_or_default(&self, name: &String) -> AccountId {
+        fn get_controller_or_default(&self, name: &str) -> AccountId {
             self.name_to_controller
                 .get(name)
                 .unwrap_or(self.default_address)
         }
 
         /// Returns the address given the String or the default address.
-        fn get_address_or_default(&self, name: String) -> AccountId {
+        fn get_address_or_default(&self, name: &str) -> AccountId {
             self.name_to_address
-                .get(&name)
+                .get(name)
                 .unwrap_or(self.default_address)
         }
     }
