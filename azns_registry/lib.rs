@@ -2,10 +2,6 @@
 
 #[ink::contract]
 mod azns_registry {
-    use crate::azns_registry::Error::{
-        CallerIsNotController, CallerIsNotOwner, NoRecordsForAddress, NoResolvedAddress,
-        RecordNotFound, WithdrawFailed,
-    };
     use azns_name_checker::get_domain_price;
     use ink::env::hash::CryptoHash;
     use ink::prelude::borrow::ToOwned;
@@ -221,13 +217,13 @@ mod azns_registry {
         #[ink(message)]
         pub fn withdraw(&mut self, value: Balance) -> Result<()> {
             if self.owner != Self::env().caller() {
-                return Err(CallerIsNotOwner);
+                return Err(Error::CallerIsNotOwner);
             }
 
             assert!(value <= Self::env().balance(), "insufficient funds!");
 
             if Self::env().transfer(Self::env().caller(), value).is_err() {
-                return Err(WithdrawFailed);
+                return Err(Error::WithdrawFailed);
             }
 
             Ok(())
@@ -245,12 +241,12 @@ mod azns_registry {
 
             /* Ensure the target name resolves to something */
             let Some(resolved) = self.name_to_address.get(name.clone()) else {
-                return Err(NoResolvedAddress);
+                return Err(Error::NoResolvedAddress);
              };
 
             /* Ensure the target name resolves to the address */
             if resolved != address {
-                return Err(NoResolvedAddress);
+                return Err(Error::NoResolvedAddress);
             }
 
             self.address_to_primary_domain.insert(address, &name);
@@ -263,14 +259,14 @@ mod azns_registry {
             /* Get the naive primary domain of the address */
             let Some(primary_domain) = self.address_to_primary_domain.get(address) else {
                 /* No primary domain set */
-                return Err(NoResolvedAddress);
+                return Err(Error::NoResolvedAddress);
             };
 
             /* Check that the primary domain actually resolves to the claimed address */
             let resolved_address = self.get_address(primary_domain.clone());
             if resolved_address != address {
                 /* Resolved address is no longer valid */
-                return Err(NoResolvedAddress);
+                return Err(Error::NoResolvedAddress);
             }
 
             Ok(primary_domain)
@@ -403,7 +399,7 @@ mod azns_registry {
             set: Vec<(String, Option<AccountId>)>,
         ) -> Result<()> {
             if self.owner != self.env().caller() {
-                return Err(CallerIsNotOwner);
+                return Err(Error::CallerIsNotOwner);
             }
 
             set.iter().for_each(|(name, addr)| {
@@ -418,7 +414,7 @@ mod azns_registry {
         #[ink(message)]
         pub fn remove_reserved_domain(&mut self, set: Vec<String>) -> Result<()> {
             if self.owner != self.env().caller() {
-                return Err(CallerIsNotOwner);
+                return Err(Error::CallerIsNotOwner);
             }
 
             set.iter().for_each(|name| self.reserved_names.remove(name));
@@ -436,7 +432,7 @@ mod azns_registry {
             let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
-                return Err(CallerIsNotOwner);
+                return Err(Error::CallerIsNotOwner);
             }
 
             self.name_to_owner.remove(&name);
@@ -540,7 +536,7 @@ mod azns_registry {
             let caller = Self::env().caller();
             let owner = self.get_owner_or_default(&name);
             if caller != owner {
-                return Err(CallerIsNotOwner);
+                return Err(Error::CallerIsNotOwner);
             }
 
             /* Change owner */
@@ -588,7 +584,7 @@ mod azns_registry {
             let controller = self.get_controller_or_default(&name);
 
             if caller != owner && caller != controller {
-                return Err(CallerIsNotOwner);
+                return Err(Error::CallerIsNotOwner);
             }
 
             self.name_to_controller.insert(&name, &new_controller);
@@ -627,7 +623,7 @@ mod azns_registry {
 
         fn ensure_admin(&mut self) -> Result<()> {
             if self.owner != self.env().caller() {
-                Err(CallerIsNotOwner)
+                Err(Error::CallerIsNotOwner)
             } else {
                 Ok(())
             }
@@ -783,10 +779,10 @@ mod azns_registry {
                 if let Some(value) = info.iter().find(|tuple| tuple.0 == key) {
                     Ok(value.clone().1)
                 } else {
-                    Err(RecordNotFound)
+                    Err(Error::RecordNotFound)
                 }
             } else {
-                Err(NoRecordsForAddress)
+                Err(Error::NoRecordsForAddress)
             };
         }
 
@@ -812,7 +808,7 @@ mod azns_registry {
             if let Some(info) = self.additional_info.get(name) {
                 Ok(info)
             } else {
-                Err(NoRecordsForAddress)
+                Err(Error::NoRecordsForAddress)
             }
         }
 
@@ -824,7 +820,7 @@ mod azns_registry {
             /* Ensure that the address is a controller of the target domain */
             let controller = self.get_controller_or_default(&name);
             if address != controller {
-                Err(CallerIsNotController)
+                Err(Error::CallerIsNotController)
             } else {
                 Ok(())
             }
@@ -834,23 +830,12 @@ mod azns_registry {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::azns_registry::*;
+    use ink::env::test::*;
+    use ink::env::DefaultEnvironment;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
-
-    use ink::env::DefaultEnvironment;
-
-    use ink::env::test::*;
-
     type Balance = u128;
-
-    use crate::azns_registry::DomainNameService;
-    use crate::azns_registry::Error::{
-        CallerIsNotController, CallerIsNotOwner, FeeNotPaid, NameAlreadyExists, NameEmpty,
-        NoResolvedAddress,
-    };
-
-    use super::azns_registry::Error;
 
     fn default_accounts() -> DefaultAccounts<DefaultEnvironment> {
         ink::env::test::default_accounts::<DefaultEnvironment>()
@@ -1062,7 +1047,7 @@ mod tests {
         /* Now the primary domain should not resolve to anything */
         assert_eq!(
             contract.get_primary_domain(default_accounts.alice),
-            Err(NoResolvedAddress)
+            Err(Error::NoResolvedAddress)
         );
 
         /* Set bob's primary domain */
@@ -1090,7 +1075,10 @@ mod tests {
             Some(Vec::from([name.clone()]))
         );
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
-        assert_eq!(contract.register(name, None, false), Err(NameAlreadyExists));
+        assert_eq!(
+            contract.register(name, None, false),
+            Err(Error::NameAlreadyExists)
+        );
 
         // Reserved names cannot be registered
         let reserved_name = String::from("AlephZero");
@@ -1157,7 +1145,7 @@ mod tests {
         assert_eq!(contract.register(name, None, false), Ok(()));
 
         set_next_caller(default_accounts.bob);
-        assert_eq!(contract.withdraw(160 ^ 12), Err(CallerIsNotOwner));
+        assert_eq!(contract.withdraw(160 ^ 12), Err(Error::CallerIsNotOwner));
     }
 
     #[ink::test]
@@ -1221,7 +1209,10 @@ mod tests {
 
         set_value_transferred::<DefaultEnvironment>(160 ^ 12);
         assert_eq!(contract.register(name.clone(), None, false), Ok(()));
-        assert_eq!(contract.register(name, None, false), Err(NameAlreadyExists));
+        assert_eq!(
+            contract.register(name, None, false),
+            Err(Error::NameAlreadyExists)
+        );
     }
 
     #[ink::test]
@@ -1232,7 +1223,7 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        assert_eq!(contract.register(name, None, false), Err(FeeNotPaid));
+        assert_eq!(contract.register(name, None, false), Err(Error::FeeNotPaid));
     }
 
     #[ink::test]
@@ -1294,7 +1285,7 @@ mod tests {
         set_next_caller(accounts.bob);
         assert_eq!(
             contract.set_address(name.clone(), accounts.bob),
-            Err(CallerIsNotController)
+            Err(Error::CallerIsNotController)
         );
 
         /* Caller is not controller, `set_all_records` should fail */
@@ -1304,7 +1295,7 @@ mod tests {
                 name.clone(),
                 Vec::from([("twitter".to_string(), "@newtest".to_string())])
             ),
-            Err(CallerIsNotController)
+            Err(Error::CallerIsNotController)
         );
 
         // Caller is controller, `set_all_records` should pass
@@ -1333,7 +1324,7 @@ mod tests {
         set_next_caller(accounts.bob);
         assert_eq!(
             contract.set_address(name.clone(), accounts.bob),
-            Err(CallerIsNotController)
+            Err(Error::CallerIsNotController)
         );
 
         // Caller is controller, set_address will be successful
@@ -1369,7 +1360,7 @@ mod tests {
         // Controller is bob, alice `set_address` should fail.
         assert_eq!(
             contract.set_address(name.clone(), accounts.bob),
-            Err(CallerIsNotController)
+            Err(Error::CallerIsNotController)
         );
 
         set_next_caller(accounts.bob);
@@ -1440,7 +1431,7 @@ mod tests {
 
         assert_eq!(
             contract.get_domain_status(reserved_name),
-            azns_registry::DomainStatus::Reserved(accounts.alice),
+            DomainStatus::Reserved(accounts.alice),
         );
 
         // Invocation from non-admin address fails
@@ -1462,7 +1453,7 @@ mod tests {
 
         assert_eq!(
             contract.get_domain_status(reserved_name.clone()),
-            azns_registry::DomainStatus::Reserved(accounts.alice),
+            DomainStatus::Reserved(accounts.alice),
         );
 
         assert!(contract
@@ -1471,7 +1462,7 @@ mod tests {
 
         assert_ne!(
             contract.get_domain_status(reserved_name),
-            azns_registry::DomainStatus::Reserved(accounts.alice),
+            DomainStatus::Reserved(accounts.alice),
         );
 
         // Invocation from non-admin address fails
@@ -1511,7 +1502,7 @@ mod tests {
 
         assert_eq!(
             contract.get_domain_status(name),
-            azns_registry::DomainStatus::Registered(accounts.bob),
+            DomainStatus::Registered(accounts.bob),
         );
     }
 
@@ -1528,22 +1519,22 @@ mod tests {
 
         assert_eq!(
             contract.get_domain_status("alice".to_string()),
-            azns_registry::DomainStatus::Registered(accounts.alice)
+            DomainStatus::Registered(accounts.alice)
         );
 
         assert_eq!(
             contract.get_domain_status("bob".to_string()),
-            azns_registry::DomainStatus::Reserved(accounts.bob)
+            DomainStatus::Reserved(accounts.bob)
         );
 
         assert_eq!(
             contract.get_domain_status("david".to_string()),
-            azns_registry::DomainStatus::Available
+            DomainStatus::Available
         );
 
         assert_eq!(
             contract.get_domain_status("".to_string()),
-            azns_registry::DomainStatus::Unavailable
+            DomainStatus::Unavailable
         );
     }
 
