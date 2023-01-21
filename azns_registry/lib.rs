@@ -7,7 +7,6 @@ mod azns_registry {
     use crate::address_book::AddressBook;
     use azns_name_checker::get_domain_price;
     use ink::env::hash::CryptoHash;
-    use ink::prelude::borrow::ToOwned;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
@@ -334,14 +333,7 @@ mod azns_registry {
 
             /* Remove from reverse search and add again */
             self.remove_name_from_owner(&caller, &name);
-            let previous_names = self.owner_to_names.get(to);
-            if let Some(names) = previous_names {
-                let mut new_names = names;
-                new_names.push(name.clone());
-                self.owner_to_names.insert(to, &new_names);
-            } else {
-                self.owner_to_names.insert(to, &Vec::from([name.clone()]));
-            }
+            self.add_name_to_owner(&to, &name);
 
             Self::env().emit_event(Transfer {
                 name,
@@ -390,21 +382,10 @@ mod azns_registry {
             }
 
             /* Remove the name from the old resolved address */
-            if let Some(names) = self.resolving_to_address.get(old_address) {
-                let mut new_names = names;
-                new_names.retain(|x| *x != name.clone());
-                self.resolving_to_address.insert(old_address, &new_names);
-            }
+            self.remove_name_from_resolving(&old_address, &name);
 
             /* Add the name to the new resolved address */
-            if let Some(names) = self.controller_to_names.get(new_address) {
-                let mut new_names = names;
-                new_names.push(name.clone());
-                self.resolving_to_address.insert(new_address, &new_names);
-            } else {
-                self.resolving_to_address
-                    .insert(new_address, &Vec::from([name.to_string()]));
-            }
+            self.add_name_to_resolving(&new_address, &name);
 
             Self::env().emit_event(SetAddress {
                 name,
@@ -431,21 +412,10 @@ mod azns_registry {
             self.name_to_address_book.insert(&name, &address_book);
 
             /* Remove the name from the old controller */
-            if let Some(names) = self.controller_to_names.get(caller) {
-                let mut new_names = names;
-                new_names.retain(|x| *x != name);
-                self.controller_to_names.insert(controller, &new_names);
-            }
+            self.remove_name_from_controller(&caller, &name);
 
             /* Add the name to the new controller */
-            if let Some(names) = self.controller_to_names.get(new_controller) {
-                let mut new_names = names;
-                new_names.push(name);
-                self.controller_to_names.insert(new_controller, &new_names);
-            } else {
-                self.controller_to_names
-                    .insert(new_controller, &Vec::from([name.to_string()]));
-            }
+            self.add_name_to_controller(&new_controller, &name);
 
             Ok(())
         }
@@ -697,35 +667,13 @@ mod azns_registry {
             self.name_to_address_book.insert(name, &address_book);
 
             /* Update convenience mapping for owned domains */
-            let previous_names = self.owner_to_names.get(recipient);
-            if let Some(names) = previous_names {
-                let mut new_names = names;
-                new_names.push(name.to_string());
-                self.owner_to_names.insert(recipient, &new_names);
-            } else {
-                self.owner_to_names
-                    .insert(recipient, &Vec::from([name.to_string()]));
-            }
+            self.add_name_to_owner(recipient, name);
 
             /* Update convenience mapping for controlled domains */
-            if let Some(names) = self.controller_to_names.get(recipient) {
-                let mut new_names = names;
-                new_names.push(name.to_owned());
-                self.controller_to_names.insert(recipient, &new_names);
-            } else {
-                self.controller_to_names
-                    .insert(recipient, &Vec::from([name.to_string()]));
-            }
+            self.add_name_to_controller(recipient, name);
 
             /* Update convenience mapping for resolved domains */
-            if let Some(names) = self.resolving_to_address.get(recipient) {
-                let mut new_names = names;
-                new_names.push(name.to_owned());
-                self.resolving_to_address.insert(recipient, &new_names);
-            } else {
-                self.resolving_to_address
-                    .insert(recipient, &Vec::from([name.to_string()]));
-            }
+            self.add_name_to_resolving(recipient, name);
 
             /* Emit register event */
             Self::env().emit_event(Register {
@@ -736,6 +684,27 @@ mod azns_registry {
             Ok(())
         }
 
+        /// Adds a name to owners' collection
+        fn add_name_to_owner(&mut self, owner: &AccountId, name: &str) {
+            let mut names = self.owner_to_names.get(owner).unwrap_or_default();
+            names.push(name.to_string());
+            self.owner_to_names.insert(&owner, &names);
+        }
+
+        /// Adds a name to controllers' collection
+        fn add_name_to_controller(&mut self, controller: &AccountId, name: &str) {
+            let mut names = self.controller_to_names.get(controller).unwrap_or_default();
+            names.push(name.to_string());
+            self.controller_to_names.insert(&controller, &names);
+        }
+
+        /// Adds a name to resolvings' collection
+        fn add_name_to_resolving(&mut self, resolving: &AccountId, name: &str) {
+            let mut names = self.resolving_to_address.get(resolving).unwrap_or_default();
+            names.push(name.to_string());
+            self.resolving_to_address.insert(&resolving, &names);
+        }
+
         /// Deletes a name from owner
         fn remove_name_from_owner(&mut self, owner: &AccountId, name: &str) {
             if let Some(old_names) = self.owner_to_names.get(owner) {
@@ -743,6 +712,22 @@ mod azns_registry {
                 new_names.retain(|prevname| prevname != name);
                 self.owner_to_names.insert(owner, &new_names);
             }
+        }
+
+        /// Deletes a name from controllers' collection
+        fn remove_name_from_controller(&mut self, controller: &AccountId, name: &str) {
+            self.controller_to_names.get(controller).map(|mut names| {
+                names.retain(|ele| ele != name);
+                self.controller_to_names.insert(&controller, &names);
+            });
+        }
+
+        /// Deletes a name from resolvings' collection
+        fn remove_name_from_resolving(&mut self, resolving: &AccountId, name: &str) {
+            self.resolving_to_address.get(resolving).map(|mut names| {
+                names.retain(|ele| ele != name);
+                self.resolving_to_address.insert(&resolving, &names);
+            });
         }
 
         fn is_name_allowed(&self, name: &str) -> bool {
@@ -1356,7 +1341,9 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract.get_metadata_by_key(domain_name.clone(), key).unwrap(),
+            contract
+                .get_metadata_by_key(domain_name.clone(), key)
+                .unwrap(),
             value
         );
 
