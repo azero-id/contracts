@@ -1,7 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+mod address_book;
+
 #[ink::contract]
 mod azns_registry {
+    use crate::address_book::AddressBook;
     use azns_name_checker::get_domain_price;
     use ink::env::hash::CryptoHash;
     use ink::prelude::borrow::ToOwned;
@@ -83,12 +86,8 @@ mod azns_registry {
         /// Names which can be claimed only by the specified user
         reserved_names: Mapping<String, AccountId>,
 
-        /// A String map to store all name to owners mapping.
-        name_to_owner: Mapping<String, AccountId>,
-        /// A mapping to set a controller for each address
-        name_to_controller: Mapping<String, AccountId>,
-        /// A String map to store all name to addresses mapping.
-        name_to_address: Mapping<String, AccountId>,
+        /// Mapping from name to addresses associated with it
+        name_to_address_book: Mapping<String, AddressBook>,
         /// Metadata
         metadata: Mapping<String, Vec<(String, String)>>,
 
@@ -186,9 +185,7 @@ mod azns_registry {
             let mut contract = Self {
                 owner: caller,
                 name_checker,
-                name_to_controller: Mapping::default(),
-                name_to_address: Mapping::default(),
-                name_to_owner: Mapping::default(),
+                name_to_address_book: Mapping::default(),
                 default_address: Default::default(),
                 owner_to_names: Default::default(),
                 metadata: Default::default(),
@@ -306,11 +303,9 @@ mod azns_registry {
                 return Err(Error::CallerIsNotOwner);
             }
 
-            self.name_to_owner.remove(&name);
-            self.name_to_address.remove(&name);
-            self.remove_name_from_owner(&caller, &name);
-            self.name_to_controller.remove(&name);
+            self.name_to_address_book.remove(&name);
             self.metadata.remove(&name);
+            self.remove_name_from_owner(&caller, &name);
 
             Self::env().emit_event(Release { name, from: caller });
 
@@ -333,8 +328,9 @@ mod azns_registry {
             }
 
             /* Change owner */
-            let old_owner = self.name_to_owner.get(&name);
-            self.name_to_owner.insert(&name, &to);
+            let mut address_book = self.get_address_book_or_default(&name);
+            address_book.set_owner(to);
+            self.name_to_address_book.insert(&name, &address_book);
 
             /* Remove from reverse search and add again */
             self.remove_name_from_owner(&caller, &name);
@@ -350,7 +346,7 @@ mod azns_registry {
             Self::env().emit_event(Transfer {
                 name,
                 from: caller,
-                old_owner,
+                old_owner: Some(owner),
                 new_owner: to,
             });
 
@@ -363,10 +359,7 @@ mod azns_registry {
             /* Ensure the caller controls the target name */
             self.ensure_controller(&Self::env().caller(), &name)?;
 
-            /* Ensure the target name resolves to something */
-            let Some(resolved) = self.name_to_address.get(name.clone()) else {
-                return Err(Error::NoResolvedAddress);
-             };
+            let resolved = self.get_resolved_address_or_default(&name);
 
             /* Ensure the target name resolves to the address */
             if resolved != address {
@@ -385,27 +378,22 @@ mod azns_registry {
             let caller = Self::env().caller();
             self.ensure_controller(&caller, &name)?;
 
-            let old_address = self.name_to_address.get(&name);
-            self.name_to_address.insert(&name, &new_address);
+            let mut address_book = self.get_address_book_or_default(&name);
+            let old_address = address_book.resolved;
+            address_book.set_resolved(new_address);
+            self.name_to_address_book.insert(&name, &address_book);
 
             /* Check if the old resolved address had this domain set as the primary domain */
             /* If yes -> clear it */
-            if let Some(old_address_exists) = old_address {
-                if let Some(primary_domain) = self.address_to_primary_domain.get(old_address_exists)
-                {
-                    if primary_domain == name {
-                        self.address_to_primary_domain.remove(old_address_exists);
-                    }
-                }
+            if self.address_to_primary_domain.get(old_address) == Some(name.clone()) {
+                self.address_to_primary_domain.remove(old_address);
             }
 
             /* Remove the name from the old resolved address */
-            if let Some(old_address) = old_address {
-                if let Some(names) = self.resolving_to_address.get(old_address) {
-                    let mut new_names = names;
-                    new_names.retain(|x| *x != name.clone());
-                    self.resolving_to_address.insert(old_address, &new_names);
-                }
+            if let Some(names) = self.resolving_to_address.get(old_address) {
+                let mut new_names = names;
+                new_names.retain(|x| *x != name.clone());
+                self.resolving_to_address.insert(old_address, &new_names);
             }
 
             /* Add the name to the new resolved address */
@@ -421,7 +409,7 @@ mod azns_registry {
             Self::env().emit_event(SetAddress {
                 name,
                 from: caller,
-                old_address,
+                old_address: Some(old_address),
                 new_address,
             });
             Ok(())
@@ -431,14 +419,16 @@ mod azns_registry {
         pub fn set_controller(&mut self, name: String, new_controller: AccountId) -> Result<()> {
             /* Ensure caller is either controller or owner */
             let caller = Self::env().caller();
-            let owner = self.get_owner_or_default(&name);
-            let controller = self.get_controller_or_default(&name);
+            let mut address_book = self.get_address_book_or_default(&name);
+            let owner = address_book.owner;
+            let controller = address_book.controller;
 
             if caller != owner && caller != controller {
                 return Err(Error::CallerIsNotOwner);
             }
 
-            self.name_to_controller.insert(&name, &new_controller);
+            address_book.set_controller(new_controller);
+            self.name_to_address_book.insert(&name, &address_book);
 
             /* Remove the name from the old controller */
             if let Some(names) = self.controller_to_names.get(caller) {
@@ -479,8 +469,8 @@ mod azns_registry {
         /// Returns the current status of the domain
         #[ink(message)]
         pub fn get_domain_status(&self, name: String) -> DomainStatus {
-            if let Some(user) = self.name_to_owner.get(&name) {
-                DomainStatus::Registered(user)
+            if let Some(user) = self.name_to_address_book.get(&name) {
+                DomainStatus::Registered(user.owner)
             } else if let Some(user) = self.reserved_names.get(&name) {
                 DomainStatus::Reserved(user)
             } else if self.is_name_allowed(&name) {
@@ -499,7 +489,7 @@ mod azns_registry {
         /// Get address for specific name.
         #[ink(message)]
         pub fn get_address(&self, name: String) -> AccountId {
-            self.get_address_or_default(&name)
+            self.get_resolved_address_or_default(&name)
         }
 
         /// Gets all records
@@ -699,18 +689,12 @@ mod azns_registry {
 
         fn register_domain(&mut self, name: &str, recipient: &AccountId) -> Result<()> {
             /* Ensure domain is not already registered */
-            if self.name_to_owner.contains(name) {
+            if self.name_to_address_book.contains(name) {
                 return Err(Error::NameAlreadyExists);
             }
 
-            /* Set domain owner */
-            self.name_to_owner.insert(name, recipient);
-
-            /* Set domain controller */
-            self.name_to_controller.insert(name, recipient);
-
-            /* Set resolved domain */
-            self.name_to_address.insert(name, recipient);
+            let address_book = AddressBook::new(recipient.clone());
+            self.name_to_address_book.insert(name, &address_book);
 
             /* Update convenience mapping for owned domains */
             let previous_names = self.owner_to_names.get(recipient);
@@ -776,22 +760,24 @@ mod azns_registry {
             true
         }
 
+        fn get_address_book_or_default(&self, name: &str) -> AddressBook {
+            self.name_to_address_book
+                .get(name)
+                .unwrap_or_else(|| AddressBook::new(self.default_address))
+        }
+
         /// Returns the owner given the String or the default address.
         fn get_owner_or_default(&self, name: &str) -> AccountId {
-            self.name_to_owner.get(name).unwrap_or(self.default_address)
+            self.get_address_book_or_default(name).owner
         }
 
         fn get_controller_or_default(&self, name: &str) -> AccountId {
-            self.name_to_controller
-                .get(name)
-                .unwrap_or(self.default_address)
+            self.get_address_book_or_default(name).controller
         }
 
         /// Returns the address given the String or the default address.
-        fn get_address_or_default(&self, name: &str) -> AccountId {
-            self.name_to_address
-                .get(name)
-                .unwrap_or(self.default_address)
+        fn get_resolved_address_or_default(&self, name: &str) -> AccountId {
+            self.get_address_book_or_default(name).resolved
         }
     }
 }
