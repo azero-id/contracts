@@ -297,14 +297,17 @@ mod azns_registry {
             }
 
             let caller = Self::env().caller();
-            let owner = self.get_owner_or_default(&name);
-            if caller != owner {
+            let address_dict = self.get_address_dict_or_default(&name);
+            if caller != address_dict.owner {
                 return Err(Error::CallerIsNotOwner);
             }
 
             self.name_to_address_dict.remove(&name);
             self.metadata.remove(&name);
-            self.remove_name_from_owner(&caller, &name);
+
+            self.remove_name_from_owner(&address_dict.owner, &name);
+            self.remove_name_from_controller(&address_dict.controller, &name);
+            self.remove_name_from_resolving(&address_dict.resolved, &name);
 
             Self::env().emit_event(Release { name, from: caller });
 
@@ -1193,17 +1196,35 @@ mod tests {
         );
         assert_eq!(contract.get_owner(name.clone()), default_accounts.alice);
         assert_eq!(contract.get_address(name.clone()), default_accounts.alice);
+
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
+            Some(Vec::from([name.clone()]))
+        );
+        assert_eq!(
+            contract.get_controlled_names_of_address(default_accounts.alice),
+            Some(Vec::from([name.clone()]))
+        );
+        assert_eq!(
+            contract.get_resolving_names_of_address(default_accounts.alice),
             Some(Vec::from([name.clone()]))
         );
 
         assert_eq!(contract.release(name.clone()), Ok(()));
         assert_eq!(contract.get_owner(name.clone()), Default::default());
         assert_eq!(contract.get_address(name.clone()), Default::default());
+
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
             Some(Vec::from([]))
+        );
+        assert_eq!(
+            contract.get_controlled_names_of_address(default_accounts.alice),
+            Some(vec![])
+        );
+        assert_eq!(
+            contract.get_resolving_names_of_address(default_accounts.alice),
+            Some(vec![])
         );
 
         /* Another account can register again*/
