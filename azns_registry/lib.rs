@@ -656,9 +656,12 @@ mod azns_registry {
         }
 
         fn ensure_controller(&self, address: &AccountId, name: &str) -> Result<()> {
-            /* Ensure that the address is a controller of the target domain */
-            let controller = self.get_controller_or_default(&name);
-            if address != &controller {
+            /* Ensure that the address has the right to control the target domain */
+            let AddressDict {
+                owner, controller, ..
+            } = self.get_address_dict_or_default(&name);
+
+            if address != &controller && address != &owner {
                 Err(Error::CallerIsNotController)
             } else {
                 Ok(())
