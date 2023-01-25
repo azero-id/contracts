@@ -263,7 +263,7 @@ mod azns_registry {
         ) -> Result<()> {
             self.register_on_behalf_of(name.clone(), self.env().caller(), merkle_proof)?;
             if set_as_primary_domain {
-                self.set_primary_domain(self.env().caller(), name)?;
+                self.set_primary_domain(name)?;
             }
             Ok(())
         }
@@ -355,10 +355,8 @@ mod azns_registry {
 
         /// Set primary domain of an address (reverse record)
         #[ink(message, payable)]
-        pub fn set_primary_domain(&mut self, address: AccountId, name: String) -> Result<()> {
-            /* Ensure the caller controls the target name */
-            self.ensure_controller(&Self::env().caller(), &name)?;
-
+        pub fn set_primary_domain(&mut self, name: String) -> Result<()> {
+            let address = self.env().caller();
             let resolved = self.get_resolved_address_or_default(&name);
 
             /* Ensure the target name resolves to the address */
@@ -980,9 +978,7 @@ mod tests {
 
         /* Now alice owns three domains */
         /* Set the primary domain for alice's address to domain 1 */
-        contract
-            .set_primary_domain(default_accounts.alice, name.clone())
-            .unwrap();
+        contract.set_primary_domain(name.clone()).unwrap();
 
         /* Now the primary domain should resolve to alice's address */
         assert_eq!(
@@ -1002,9 +998,8 @@ mod tests {
         );
 
         /* Set bob's primary domain */
-        contract
-            .set_primary_domain(default_accounts.bob, name.clone())
-            .unwrap();
+        set_next_caller(default_accounts.bob);
+        contract.set_primary_domain(name.clone()).unwrap();
 
         /* Now the primary domain should not resolve to anything */
         assert_eq!(contract.get_primary_domain(default_accounts.bob), Ok(name));
