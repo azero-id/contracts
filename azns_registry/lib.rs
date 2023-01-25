@@ -326,14 +326,19 @@ mod azns_registry {
                 return Err(Error::CallerIsNotOwner);
             }
 
-            /* Change owner */
-            let mut address_dict = self.get_address_dict_or_default(&name);
-            address_dict.set_owner(to);
+            /* Transfer control to new owner `to` */
+            let address_dict = AddressDict::new(to);
             self.name_to_address_dict.insert(&name, &address_dict);
 
-            /* Remove from reverse search and add again */
+            /* Remove from reverse search */
             self.remove_name_from_owner(&caller, &name);
+            self.remove_name_from_controller(&caller, &name);
+            self.remove_name_from_resolving(&caller, &name);
+
+            /* Add to reverse search of owner */
             self.add_name_to_owner(&to, &name);
+            self.add_name_to_controller(&to, &name);
+            self.add_name_to_resolving(&to, &name);
 
             Self::env().emit_event(Transfer {
                 name,
@@ -1302,7 +1307,12 @@ mod tests {
             Some(Vec::from([name.clone()]))
         );
 
-        contract.set_controller(name.clone(), accounts.bob).unwrap();
+        // Alice is not the controller anymore
+        assert_eq!(
+            contract.set_controller(name.clone(), accounts.bob),
+            Err(Error::CallerIsNotOwner)
+        );
+
         // Controller is bob, alice `set_address` should fail.
         assert_eq!(
             contract.set_address(name.clone(), accounts.bob),
@@ -1311,8 +1321,8 @@ mod tests {
 
         set_next_caller(accounts.bob);
         // Now owner is bob, `set_address` should be successful.
-        assert_eq!(contract.set_address(name.clone(), accounts.bob), Ok(()));
-        assert_eq!(contract.get_address(name), accounts.bob);
+        assert_eq!(contract.set_address(name.clone(), accounts.eve), Ok(()));
+        assert_eq!(contract.get_address(name), accounts.eve);
     }
 
     #[ink::test]
