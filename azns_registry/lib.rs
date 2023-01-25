@@ -456,6 +456,12 @@ mod azns_registry {
             self.get_owner_or_default(&name)
         }
 
+        /// Get controller of specific name.
+        #[ink(message)]
+        pub fn get_controller(&self, name: String) -> AccountId {
+            self.get_controller_or_default(&name)
+        }
+
         /// Get address for specific name.
         #[ink(message)]
         pub fn get_address(&self, name: String) -> AccountId {
