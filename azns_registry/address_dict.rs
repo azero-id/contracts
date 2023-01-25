@@ -6,13 +6,13 @@ use ink::primitives::AccountId;
     feature = "std",
     derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
 )]
-pub struct AddressBook {
+pub struct AddressDict {
     pub owner: AccountId,
     pub controller: AccountId,
     pub resolved: AccountId,
 }
 
-impl AddressBook {
+impl AddressDict {
     pub fn new(account: AccountId) -> Self {
         Self {
             owner: account,
