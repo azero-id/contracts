@@ -583,9 +583,7 @@ mod azns_registry {
         /// Transfers `value` amount of tokens to the caller.
         #[ink(message)]
         pub fn withdraw(&mut self, value: Balance) -> Result<()> {
-            if self.owner != Self::env().caller() {
-                return Err(Error::CallerIsNotOwner);
-            }
+            self.ensure_admin()?;
 
             assert!(value <= Self::env().balance(), "insufficient funds!");
 
@@ -630,9 +628,7 @@ mod azns_registry {
             &mut self,
             set: Vec<(String, Option<AccountId>)>,
         ) -> Result<()> {
-            if self.owner != self.env().caller() {
-                return Err(Error::CallerIsNotOwner);
-            }
+            self.ensure_admin()?;
 
             set.iter().for_each(|(name, addr)| {
                 let addr = addr.unwrap_or(self.default_address);
@@ -645,15 +641,13 @@ mod azns_registry {
         /// Remove given names from the list of reserved domains
         #[ink(message)]
         pub fn remove_reserved_domain(&mut self, set: Vec<String>) -> Result<()> {
-            if self.owner != self.env().caller() {
-                return Err(Error::CallerIsNotOwner);
-            }
+            self.ensure_admin()?;
 
             set.iter().for_each(|name| self.reserved_names.remove(name));
             Ok(())
         }
 
-        fn ensure_admin(&mut self) -> Result<()> {
+        fn ensure_admin(&self) -> Result<()> {
             if self.owner != self.env().caller() {
                 Err(Error::CallerIsNotOwner)
             } else {
