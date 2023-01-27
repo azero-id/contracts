@@ -297,10 +297,8 @@ mod azns_registry {
             }
 
             let caller = Self::env().caller();
+            self.ensure_owner(&caller, &name)?;
             let address_dict = self.get_address_dict_or_default(&name);
-            if caller != address_dict.owner {
-                return Err(Error::CallerIsNotOwner);
-            }
 
             self.name_to_address_dict.remove(&name);
             self.metadata.remove(&name);
@@ -324,10 +322,7 @@ mod azns_registry {
 
             /* Ensure the caller is the owner of the domain */
             let caller = Self::env().caller();
-            let owner = self.get_owner_or_default(&name);
-            if caller != owner {
-                return Err(Error::CallerIsNotOwner);
-            }
+            self.ensure_owner(&caller, &name)?;
 
             /* Transfer control to new owner `to` */
             let address_dict = AddressDict::new(to);
@@ -346,7 +341,7 @@ mod azns_registry {
             Self::env().emit_event(Transfer {
                 name,
                 from: caller,
-                old_owner: Some(owner),
+                old_owner: Some(caller),
                 new_owner: to,
             });
 
@@ -406,14 +401,9 @@ mod azns_registry {
         pub fn set_controller(&mut self, name: String, new_controller: AccountId) -> Result<()> {
             /* Ensure caller is either controller or owner */
             let caller = Self::env().caller();
+            self.ensure_controller(&caller, &name)?;
+
             let mut address_dict = self.get_address_dict_or_default(&name);
-            let owner = address_dict.owner;
-            let controller = address_dict.controller;
-
-            if caller != owner && caller != controller {
-                return Err(Error::CallerIsNotOwner);
-            }
-
             address_dict.set_controller(new_controller);
             self.name_to_address_dict.insert(&name, &address_dict);
 
@@ -647,6 +637,15 @@ mod azns_registry {
 
         fn ensure_admin(&self) -> Result<()> {
             if self.owner != self.env().caller() {
+                Err(Error::CallerIsNotOwner)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn ensure_owner(&self, address: &AccountId, name: &str) -> Result<()> {
+            let AddressDict { owner, .. } = self.get_address_dict_or_default(&name);
+            if address != &owner {
                 Err(Error::CallerIsNotOwner)
             } else {
                 Ok(())
@@ -1333,7 +1332,7 @@ mod tests {
         // Alice is not the controller anymore
         assert_eq!(
             contract.set_controller(name.clone(), accounts.bob),
-            Err(Error::CallerIsNotOwner)
+            Err(Error::CallerIsNotController)
         );
 
         // Controller is bob, alice `set_address` should fail.
