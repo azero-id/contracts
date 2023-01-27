@@ -78,8 +78,8 @@ mod azns_registry {
 
     #[ink(storage)]
     pub struct DomainNameService {
-        /// Owner of the contract can withdraw funds
-        owner: AccountId,
+        /// Admin of the contract can perform root operations
+        admin: AccountId,
         /// The default address.
         default_address: AccountId,
         /// Names which can be claimed only by the specified user
@@ -114,7 +114,9 @@ mod azns_registry {
         NameAlreadyExists,
         /// Name is (currently) now allowed
         NameNotAllowed,
-        /// Returned if caller is not owner while required to.
+        /// Caller is not an admin while required to.
+        CallerIsNotAdmin,
+        /// Returned if caller is not names' owner.
         CallerIsNotOwner,
         /// This call requires the caller to be a controller of the domain
         CallerIsNotController,
@@ -182,7 +184,7 @@ mod azns_registry {
             });
 
             let mut contract = Self {
-                owner: caller,
+                admin: caller,
                 name_checker,
                 name_to_address_dict: Mapping::default(),
                 default_address: Default::default(),
@@ -636,8 +638,8 @@ mod azns_registry {
         }
 
         fn ensure_admin(&self) -> Result<()> {
-            if self.owner != self.env().caller() {
-                Err(Error::CallerIsNotOwner)
+            if self.admin != self.env().caller() {
+                Err(Error::CallerIsNotAdmin)
             } else {
                 Ok(())
             }
@@ -1099,7 +1101,7 @@ mod tests {
         set_next_caller(default_accounts.bob);
         assert_eq!(
             contract.withdraw(160_u128.pow(12)),
-            Err(Error::CallerIsNotOwner)
+            Err(Error::CallerIsNotAdmin)
         );
     }
 
@@ -1418,7 +1420,7 @@ mod tests {
         set_next_caller(accounts.bob);
         assert_eq!(
             contract.add_reserved_domains(vec![]),
-            Err(Error::CallerIsNotOwner)
+            Err(Error::CallerIsNotAdmin)
         );
     }
 
@@ -1449,7 +1451,7 @@ mod tests {
         set_next_caller(accounts.bob);
         assert_eq!(
             contract.remove_reserved_domain(vec![]),
-            Err(Error::CallerIsNotOwner)
+            Err(Error::CallerIsNotAdmin)
         );
     }
 
