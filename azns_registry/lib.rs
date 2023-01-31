@@ -9,6 +9,7 @@ mod azns_registry {
     use ink::env::hash::CryptoHash;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
+    use ink::storage::traits::ManualKey;
     use ink::storage::Mapping;
 
     use azns_name_checker::NameCheckerRef;
@@ -82,26 +83,27 @@ mod azns_registry {
         admin: AccountId,
         /// The default address.
         default_address: AccountId,
+        /// Contract which verifies the validity of a name
+        name_checker: Option<NameCheckerRef>,
         /// Names which can be claimed only by the specified user
-        reserved_names: Mapping<String, AccountId>,
+        reserved_names: Mapping<String, AccountId, ManualKey<100>>,
 
         /// Mapping from name to addresses associated with it
-        name_to_address_dict: Mapping<String, AddressDict>,
+        name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
         /// Metadata
-        metadata: Mapping<String, Vec<(String, String)>>,
+        metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
 
         /// All names an address owns
-        owner_to_names: Mapping<AccountId, Vec<String>>,
+        owner_to_names: Mapping<AccountId, Vec<String>, ManualKey<300>>,
         /// All names an address controls
-        controller_to_names: Mapping<AccountId, Vec<String>>,
+        controller_to_names: Mapping<AccountId, Vec<String>, ManualKey<301>>,
         /// All names that resolve to the given address
-        resolving_to_address: Mapping<AccountId, Vec<String>>,
+        resolving_to_address: Mapping<AccountId, Vec<String>, ManualKey<302>>,
         /// Primary domain record
         /// IMPORTANT NOTE: This mapping may be out-of-date, since we don't update it when a resolved address changes, or when a domain is withdrawn.
         /// Only use the get_primary_domain
-        address_to_primary_domain: Mapping<AccountId, String>,
+        address_to_primary_domain: Mapping<AccountId, String, ManualKey<303>>,
 
-        name_checker: Option<NameCheckerRef>,
         /// Merkle Verifier used to identifiy whitelisted addresses
         whitelisted_address_verifier: Option<MerkleVerifierRef>,
     }
