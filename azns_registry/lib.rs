@@ -10,7 +10,7 @@ mod azns_registry {
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
     use ink::storage::traits::ManualKey;
-    use ink::storage::Mapping;
+    use ink::storage::{Lazy, Mapping};
 
     use azns_name_checker::NameCheckerRef;
     use merkle_verifier::MerkleVerifierRef;
@@ -105,7 +105,7 @@ mod azns_registry {
         address_to_primary_domain: Mapping<AccountId, String, ManualKey<303>>,
 
         /// Merkle Verifier used to identifiy whitelisted addresses
-        whitelisted_address_verifier: Option<MerkleVerifierRef>,
+        whitelisted_address_verifier: Lazy<Option<MerkleVerifierRef>, ManualKey<999>>,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -195,9 +195,14 @@ mod azns_registry {
                 address_to_primary_domain: Default::default(),
                 controller_to_names: Default::default(),
                 resolving_to_address: Default::default(),
-                whitelisted_address_verifier,
+                whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
             };
+
+            // Initialize address verifier
+            contract
+                .whitelisted_address_verifier
+                .set(&whitelisted_address_verifier);
 
             // Initializing reserved domains
             if let Some(set) = reserved_domains {
@@ -550,7 +555,7 @@ mod azns_registry {
         /// and `false` when it is in public-phase
         #[ink(message)]
         pub fn is_whitelist_phase(&self) -> bool {
-            self.whitelisted_address_verifier.is_some()
+            self.whitelisted_address_verifier.get_or_default().is_some()
         }
 
         #[ink(message)]
@@ -565,7 +570,7 @@ mod azns_registry {
             let mut leaf = [0u8; 32];
             ink::env::hash::Sha2x256::hash(account.as_ref(), &mut leaf);
 
-            let Some(verifier) = &self.whitelisted_address_verifier else {
+            let Some(verifier) = &self.whitelisted_address_verifier.get_or_default() else {
                 return false;
             };
             verifier.verify_proof(leaf, merkle_proof)
@@ -592,7 +597,8 @@ mod azns_registry {
         pub fn update_merkle_root(&mut self, new_root: [u8; 32]) -> Result<()> {
             self.ensure_admin()?;
 
-            let Some(verifier) = self.whitelisted_address_verifier.as_mut() else {
+            let mut address_verifier = self.whitelisted_address_verifier.get_or_default();
+            let Some(verifier) = address_verifier.as_mut() else {
                 return Err(Error::OnlyDuringWhitelistPhase);
             };
             verifier.update_root(new_root);
@@ -606,7 +612,8 @@ mod azns_registry {
         pub fn switch_to_public_phase(&mut self) -> Result<()> {
             self.ensure_admin()?;
 
-            if self.whitelisted_address_verifier.take().is_some() {
+            if self.whitelisted_address_verifier.get_or_default().is_some() {
+                self.whitelisted_address_verifier.set(&None);
                 self.env().emit_event(PublicPhaseActivated {});
             }
             Ok(())
