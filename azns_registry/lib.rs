@@ -9,7 +9,8 @@ mod azns_registry {
     use ink::env::hash::CryptoHash;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
-    use ink::storage::Mapping;
+    use ink::storage::traits::ManualKey;
+    use ink::storage::{Lazy, Mapping};
 
     use azns_name_checker::NameCheckerRef;
     use merkle_verifier::MerkleVerifierRef;
@@ -82,28 +83,29 @@ mod azns_registry {
         admin: AccountId,
         /// The default address.
         default_address: AccountId,
+        /// Contract which verifies the validity of a name
+        name_checker: Option<NameCheckerRef>,
         /// Names which can be claimed only by the specified user
-        reserved_names: Mapping<String, AccountId>,
+        reserved_names: Mapping<String, AccountId, ManualKey<100>>,
 
         /// Mapping from name to addresses associated with it
-        name_to_address_dict: Mapping<String, AddressDict>,
+        name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
         /// Metadata
-        metadata: Mapping<String, Vec<(String, String)>>,
+        metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
 
         /// All names an address owns
-        owner_to_names: Mapping<AccountId, Vec<String>>,
+        owner_to_names: Mapping<AccountId, Vec<String>, ManualKey<300>>,
         /// All names an address controls
-        controller_to_names: Mapping<AccountId, Vec<String>>,
+        controller_to_names: Mapping<AccountId, Vec<String>, ManualKey<301>>,
         /// All names that resolve to the given address
-        resolving_to_address: Mapping<AccountId, Vec<String>>,
+        resolving_to_address: Mapping<AccountId, Vec<String>, ManualKey<302>>,
         /// Primary domain record
         /// IMPORTANT NOTE: This mapping may be out-of-date, since we don't update it when a resolved address changes, or when a domain is withdrawn.
         /// Only use the get_primary_domain
-        address_to_primary_domain: Mapping<AccountId, String>,
+        address_to_primary_domain: Mapping<AccountId, String, ManualKey<303>>,
 
-        name_checker: Option<NameCheckerRef>,
         /// Merkle Verifier used to identifiy whitelisted addresses
-        whitelisted_address_verifier: Option<MerkleVerifierRef>,
+        whitelisted_address_verifier: Lazy<Option<MerkleVerifierRef>, ManualKey<999>>,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -193,9 +195,14 @@ mod azns_registry {
                 address_to_primary_domain: Default::default(),
                 controller_to_names: Default::default(),
                 resolving_to_address: Default::default(),
-                whitelisted_address_verifier,
+                whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
             };
+
+            // Initialize address verifier
+            contract
+                .whitelisted_address_verifier
+                .set(&whitelisted_address_verifier);
 
             // Initializing reserved domains
             if let Some(set) = reserved_domains {
@@ -548,7 +555,7 @@ mod azns_registry {
         /// and `false` when it is in public-phase
         #[ink(message)]
         pub fn is_whitelist_phase(&self) -> bool {
-            self.whitelisted_address_verifier.is_some()
+            self.whitelisted_address_verifier.get_or_default().is_some()
         }
 
         #[ink(message)]
@@ -563,7 +570,7 @@ mod azns_registry {
             let mut leaf = [0u8; 32];
             ink::env::hash::Sha2x256::hash(account.as_ref(), &mut leaf);
 
-            let Some(verifier) = &self.whitelisted_address_verifier else {
+            let Some(verifier) = &self.whitelisted_address_verifier.get_or_default() else {
                 return false;
             };
             verifier.verify_proof(leaf, merkle_proof)
@@ -590,7 +597,8 @@ mod azns_registry {
         pub fn update_merkle_root(&mut self, new_root: [u8; 32]) -> Result<()> {
             self.ensure_admin()?;
 
-            let Some(verifier) = self.whitelisted_address_verifier.as_mut() else {
+            let mut address_verifier = self.whitelisted_address_verifier.get_or_default();
+            let Some(verifier) = address_verifier.as_mut() else {
                 return Err(Error::OnlyDuringWhitelistPhase);
             };
             verifier.update_root(new_root);
@@ -604,7 +612,8 @@ mod azns_registry {
         pub fn switch_to_public_phase(&mut self) -> Result<()> {
             self.ensure_admin()?;
 
-            if self.whitelisted_address_verifier.take().is_some() {
+            if self.whitelisted_address_verifier.get_or_default().is_some() {
+                self.whitelisted_address_verifier.set(&None);
                 self.env().emit_event(PublicPhaseActivated {});
             }
             Ok(())
@@ -634,6 +643,23 @@ mod azns_registry {
             self.ensure_admin()?;
 
             set.iter().for_each(|name| self.reserved_names.remove(name));
+            Ok(())
+        }
+
+        /// (ADMIN-OPERATION)
+        /// Upgrade contract code
+        #[ink(message)]
+        pub fn upgrade_contract(&mut self, code_hash: [u8; 32]) -> Result<()> {
+            self.ensure_admin()?;
+
+            ink::env::set_code_hash(&code_hash).unwrap_or_else(|err| {
+                panic!(
+                    "Failed to `set_code_hash` to {:?} due to {:?}",
+                    code_hash, err
+                )
+            });
+            ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
+
             Ok(())
         }
 
