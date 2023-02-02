@@ -5,14 +5,13 @@ mod address_dict;
 #[ink::contract]
 mod azns_registry {
     use crate::address_dict::AddressDict;
-    use azns_name_checker::get_domain_price;
     use ink::env::hash::CryptoHash;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
     use ink::storage::traits::ManualKey;
     use ink::storage::{Lazy, Mapping};
 
-    use azns_name_checker::NameCheckerRef;
+    use azns_name_checker::{NameCheckerRef, UnicodeRange};
     use merkle_verifier::MerkleVerifierRef;
 
     pub type Result<T> = core::result::Result<T, Error>;
@@ -167,11 +166,32 @@ mod azns_registry {
             let salt = version.unwrap_or(1u32).to_le_bytes();
 
             let name_checker = name_checker_hash.map(|hash| {
-                NameCheckerRef::new()
-                    .endowment(total_balance / 4) // TODO why /4?
-                    .code_hash(hash)
-                    .salt_bytes(salt)
-                    .instantiate()
+                NameCheckerRef::new(
+                    (5, 99),
+                    vec![
+                        UnicodeRange {
+                            lower: 'a' as u32,
+                            upper: 'z' as u32,
+                        },
+                        UnicodeRange {
+                            lower: '0' as u32,
+                            upper: '9' as u32,
+                        },
+                        UnicodeRange {
+                            lower: '-' as u32,
+                            upper: '-' as u32,
+                        },
+                    ],
+                    vec![UnicodeRange {
+                        lower: '-' as u32,
+                        upper: '-' as u32,
+                    }],
+                )
+                .endowment(total_balance / 4) // TODO why /4?
+                .code_hash(hash)
+                .salt_bytes(salt)
+                .instantiate()
+                .expect("failed at instantiating the `NameCheckerRef` contract")
             });
 
             // Initializing MerkleVerifier
@@ -181,6 +201,7 @@ mod azns_registry {
                     .code_hash(ch)
                     .salt_bytes(salt)
                     .instantiate()
+                    .expect("failed at instantiating the `MerkleVerifierRef` contract")
             });
 
             let mut contract = Self {
@@ -267,8 +288,6 @@ mod azns_registry {
             /* Make sure the register is paid for */
             let _transferred = Self::env().transferred_value();
             if _transferred < domain_price - discount {
-                return Err(Error::FeeNotPaid);
-            }
 
             self.register_domain(&name, &recipient)?;
 
