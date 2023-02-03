@@ -219,6 +219,7 @@ mod azns_registry {
             &mut self,
             name: String,
             recipient: AccountId,
+            referrer: Option<String>,
             merkle_proof: Option<Vec<[u8; 32]>>,
         ) -> Result<()> {
             if !self.is_name_allowed(&name) {
@@ -229,6 +230,13 @@ mod azns_registry {
             if self.reserved_names.contains(&name) {
                 return Err(Error::CannotBuyReservedDomain);
             }
+
+            // (TODO) call the domain-price function
+            let domain_price = 1000;
+            // Discount as a part of referral-system
+            let mut discount: Balance = 0;
+            // Affiliate Address
+            let mut affiliate: Option<AccountId> = None;
 
             // If in whitelist-phase; Verify that the caller is whitelisted
             if self.is_whitelist_phase() {
@@ -248,15 +256,32 @@ mod azns_registry {
                 if !self.verify_proof(caller, merkle_proof) {
                     return Err(Error::InvalidMerkleProof);
                 }
+            } else {
+                // Referral system is active only after whitelist-phase is over
+                if let Some(referrer_name) = referrer {
+                    if let Ok(resolved) = self.get_address(referrer_name) {
+                        affiliate = Some(resolved);
+                        discount = 5 * domain_price / 100; // 5% discount
+                    }
+                }
             }
 
             /* Make sure the register is paid for */
             let _transferred = Self::env().transferred_value();
-            if _transferred < get_domain_price(&name) {
+            if _transferred < domain_price - discount {
                 return Err(Error::FeeNotPaid);
             }
 
-            self.register_domain(&name, &recipient)
+            self.register_domain(&name, &recipient)?;
+
+            // Pay the affiliate (if present) after successful registration
+            if let Some(usr) = affiliate {
+                if self.env().transfer(usr, discount).is_err() {
+                    return Err(Error::WithdrawFailed);
+                }
+            }
+
+            Ok(())
         }
 
         /// Register specific name with caller as owner.
@@ -266,10 +291,11 @@ mod azns_registry {
         pub fn register(
             &mut self,
             name: String,
+            referrer: Option<String>,
             merkle_proof: Option<Vec<[u8; 32]>>,
             set_as_primary_domain: bool,
         ) -> Result<()> {
-            self.register_on_behalf_of(name.clone(), self.env().caller(), merkle_proof)?;
+            self.register_on_behalf_of(name.clone(), self.env().caller(), referrer, merkle_proof)?;
             if set_as_primary_domain {
                 self.set_primary_domain(name)?;
             }
