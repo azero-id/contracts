@@ -852,13 +852,13 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name2.clone(), None, None, false), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name3.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name3.clone(), None, None, false), Ok(()));
 
         /* Now alice owns three domains */
         /* getting all owned domains should return all three */
@@ -879,15 +879,15 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name2.clone(), None, None, false), Ok(()));
 
         /* Register bar under bob, but set controller to alice */
         set_next_caller(default_accounts.bob);
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name3.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name3.clone(), None, None, false), Ok(()));
         assert_eq!(
             contract.set_controller(name3.clone(), default_accounts.alice),
             Ok(())
@@ -912,11 +912,11 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
 
         set_next_caller(default_accounts.charlie);
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name2.clone(), None, None, false), Ok(()));
 
         /* getting all domains should return first only */
         assert_eq!(
@@ -927,7 +927,7 @@ mod tests {
         /* Register bar under bob, but set resolved address to alice */
         set_next_caller(default_accounts.bob);
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name3.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name3.clone(), None, None, false), Ok(()));
         assert_eq!(
             contract.set_address(name3.clone(), default_accounts.alice),
             Ok(())
@@ -963,10 +963,10 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name2.clone(), None, None, false), Ok(()));
 
         /* getting all domains should return first two */
         assert_eq!(
@@ -977,7 +977,7 @@ mod tests {
         /* Register bar under bob, but set resolved address to alice */
         set_next_caller(default_accounts.bob);
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name3.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name3.clone(), None, None, false), Ok(()));
         assert_eq!(
             contract.set_address(name3.clone(), default_accounts.alice),
             Ok(())
@@ -1011,13 +1011,13 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2, None, false), Ok(()));
+        assert_eq!(contract.register(name2, None, None, false), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name3, None, false), Ok(()));
+        assert_eq!(contract.register(name3, None, None, false), Ok(()));
 
         /* Now alice owns three domains */
         /* Set the primary domain for alice's address to domain 1 */
@@ -1057,7 +1057,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
@@ -1065,7 +1065,7 @@ mod tests {
         );
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
         assert_eq!(
-            contract.register(name, None, false),
+            contract.register(name, None, None, false),
             Err(Error::NameAlreadyExists)
         );
 
@@ -1077,7 +1077,7 @@ mod tests {
             .expect("Failed to reserve domain");
 
         assert_eq!(
-            contract.register(reserved_name, None, false),
+            contract.register(reserved_name, None, None, false),
             Err(Error::CannotBuyReservedDomain)
         );
     }
@@ -1091,7 +1091,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, true), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, true), Ok(()));
 
         assert_eq!(
             contract.get_primary_domain(default_accounts.alice),
@@ -1113,7 +1113,7 @@ mod tests {
         set_next_caller(default_accounts.bob);
         set_account_balance::<DefaultEnvironment>(default_accounts.bob, fees);
         transfer_in::<DefaultEnvironment>(fees);
-        assert_eq!(contract.register(name, None, false), Ok(()));
+        assert_eq!(contract.register(name, None, None, false), Ok(()));
 
         // Alice (admin) withdraws the funds
         set_next_caller(default_accounts.alice);
@@ -1138,7 +1138,7 @@ mod tests {
         let _acc_balance_before_transfer: Balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name, None, false), Ok(()));
+        assert_eq!(contract.register(name, None, None, false), Ok(()));
 
         set_next_caller(default_accounts.bob);
         assert_eq!(
@@ -1157,9 +1157,9 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name, None, false), Ok(()));
+        assert_eq!(contract.register(name, None, None, false), Ok(()));
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2, None, false), Ok(()));
+        assert_eq!(contract.register(name2, None, None, false), Ok(()));
         assert!(contract
             .get_owned_names_of_address(default_accounts.alice)
             .unwrap()
@@ -1180,7 +1180,7 @@ mod tests {
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
         assert_eq!(
-            contract.register(name, None, false),
+            contract.register(name, None, None, false),
             Err(Error::NameNotAllowed)
         );
     }
@@ -1207,9 +1207,9 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
         assert_eq!(
-            contract.register(name, None, false),
+            contract.register(name, None, None, false),
             Err(Error::NameAlreadyExists)
         );
     }
@@ -1222,7 +1222,10 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        assert_eq!(contract.register(name, None, false), Err(Error::FeeNotPaid));
+        assert_eq!(
+            contract.register(name, None, None, false),
+            Err(Error::FeeNotPaid)
+        );
     }
 
     #[ink::test]
@@ -1234,7 +1237,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.alice),
             Ok(())
@@ -1284,7 +1287,7 @@ mod tests {
         /* Another account can register again*/
         set_next_caller(default_accounts.bob);
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.bob),
             Ok(())
@@ -1308,7 +1311,7 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        contract.register(name.clone(), None, false).unwrap();
+        contract.register(name.clone(), None, None, false).unwrap();
 
         // Caller is not controller, `set_address` should fail.
         set_next_caller(accounts.bob);
@@ -1347,7 +1350,7 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
 
         // Caller is not controller, `set_address` should fail.
         set_next_caller(accounts.bob);
@@ -1371,7 +1374,7 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, false), Ok(()));
+        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
 
         // Test transfer of owner.
         assert_eq!(contract.transfer(name.clone(), accounts.bob), Ok(()));
@@ -1416,7 +1419,10 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(domain_name.clone(), None, false), Ok(()));
+        assert_eq!(
+            contract.register(domain_name.clone(), None, None, false),
+            Ok(())
+        );
 
         assert_eq!(
             contract.set_all_records(domain_name.clone(), records.clone()),
@@ -1550,7 +1556,7 @@ mod tests {
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
         contract
-            .register("alice".to_string(), None, false)
+            .register("alice".to_string(), None, None, false)
             .expect("failed to register domain");
 
         assert_eq!(
