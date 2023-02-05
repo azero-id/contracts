@@ -113,7 +113,7 @@ mod azns_registry {
         /// Returned if the name already exists upon registration.
         NameAlreadyExists,
         /// Returned if the name has not been registered
-        NameDoesntExists,
+        NameDoesntExist,
         /// Name is (currently) now allowed
         NameNotAllowed,
         /// Caller is not an admin while required to.
@@ -788,7 +788,7 @@ mod azns_registry {
         fn get_address_dict_ref(&self, name: &str) -> Result<AddressDict> {
             self.name_to_address_dict
                 .get(name)
-                .ok_or(Error::NameDoesntExists)
+                .ok_or(Error::NameDoesntExist)
         }
     }
 }
@@ -1235,11 +1235,11 @@ mod tests {
         assert_eq!(contract.release(name.clone()), Ok(()));
         assert_eq!(
             contract.get_owner(name.clone()),
-            Err(Error::NameDoesntExists)
+            Err(Error::NameDoesntExist)
         );
         assert_eq!(
             contract.get_address(name.clone()),
-            Err(Error::NameDoesntExists)
+            Err(Error::NameDoesntExist)
         );
 
         assert_eq!(
@@ -1268,9 +1268,9 @@ mod tests {
         assert_eq!(contract.release(name.clone()), Ok(()));
         assert_eq!(
             contract.get_owner(name.clone()),
-            Err(Error::NameDoesntExists)
+            Err(Error::NameDoesntExist)
         );
-        assert_eq!(contract.get_address(name), Err(Error::NameDoesntExists));
+        assert_eq!(contract.get_address(name), Err(Error::NameDoesntExist));
     }
 
     #[ink::test]
