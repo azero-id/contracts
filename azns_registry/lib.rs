@@ -822,6 +822,7 @@ mod azns_registry {
 #[cfg(test)]
 mod tests {
     use super::azns_registry::*;
+    use ink::codegen::Env;
     use ink::env::test::*;
     use ink::env::DefaultEnvironment;
     use ink::prelude::string::{String, ToString};
@@ -1579,6 +1580,60 @@ mod tests {
             DomainStatus::Unavailable
         );
     }
+
+    #[ink::test]
+    fn referral_system_works() {
+        let default_accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        set_callee::<DefaultEnvironment>(default_accounts.eve);
+        assert_eq!(contract.env().account_id(), default_accounts.eve);
+
+        let alice = "alice".to_string();
+        let bob = "bob".to_string();
+
+        // 1. Invalid referrer name gives no discount
+        let fees = 1000;
+        set_next_caller(default_accounts.alice);
+        set_account_balance::<DefaultEnvironment>(default_accounts.alice, fees);
+        set_callee::<DefaultEnvironment>(contract.env().account_id());
+        transfer_in::<DefaultEnvironment>(fees);
+        assert_eq!(
+            contract.register(alice.clone(), Some(bob.clone()), None, false),
+            Ok(())
+        );
+
+        let alice_balance =
+            get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
+
+        // Initial Balance(alice): 1000
+        // Domain fee without discount: 1000
+        assert_eq!(alice_balance, 0);
+
+        // 2. Discount works
+        let discount = 50;
+        set_next_caller(default_accounts.bob);
+        set_account_balance::<DefaultEnvironment>(default_accounts.bob, fees);
+        transfer_in::<DefaultEnvironment>(fees - discount);
+        assert_eq!(contract.register(bob, Some(alice), None, false), Ok(()));
+
+        let alice_balance =
+            get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
+        let bob_balance = get_account_balance::<DefaultEnvironment>(default_accounts.bob).unwrap();
+
+        // Initial Balance (bob): 1000
+        // Domain fee after discount: 9950
+        assert_eq!(bob_balance, 50);
+
+        // Affiliation payment to alice
+        assert_eq!(alice_balance, 50);
+    }
+
+    // TODO Need cross-contract test support
+    // #[ink::test]
+    // fn referral_system_inactive_during_whitelist_phase() {
+
+    // }
 
     // TODO: Finish this test once we get cross-contract testing working
     // #[ink::test]
