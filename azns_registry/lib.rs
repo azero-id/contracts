@@ -24,7 +24,7 @@ mod azns_registry {
         /// Domain is registered by the given address
         Registered(AccountId),
         /// Domain is reserved for the given address
-        Reserved(AccountId),
+        Reserved(Option<AccountId>),
         /// Domain is available for purchase
         Available,
         /// Domain has invalid characters/length
@@ -81,12 +81,10 @@ mod azns_registry {
     pub struct DomainNameService {
         /// Admin of the contract can perform root operations
         admin: AccountId,
-        /// The default address.
-        default_address: AccountId,
         /// Contract which verifies the validity of a name
         name_checker: Option<NameCheckerRef>,
         /// Names which can be claimed only by the specified user
-        reserved_names: Mapping<String, AccountId, ManualKey<100>>,
+        reserved_names: Mapping<String, Option<AccountId>, ManualKey<100>>,
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
@@ -114,6 +112,8 @@ mod azns_registry {
     pub enum Error {
         /// Returned if the name already exists upon registration.
         NameAlreadyExists,
+        /// Returned if the name has not been registered
+        NameDoesntExist,
         /// Name is (currently) now allowed
         NameNotAllowed,
         /// Caller is not an admin while required to.
@@ -189,7 +189,6 @@ mod azns_registry {
                 admin: caller,
                 name_checker,
                 name_to_address_dict: Mapping::default(),
-                default_address: Default::default(),
                 owner_to_names: Default::default(),
                 metadata: Default::default(),
                 address_to_primary_domain: Default::default(),
@@ -286,7 +285,7 @@ mod azns_registry {
                 return Err(Error::NotReservedDomain);
             };
 
-            if caller != user {
+            if Some(caller) != user {
                 return Err(Error::NotAuthorised);
             }
 
@@ -307,7 +306,7 @@ mod azns_registry {
 
             let caller = Self::env().caller();
             self.ensure_owner(&caller, &name)?;
-            let address_dict = self.get_address_dict_or_default(&name);
+            let address_dict = self.get_address_dict_ref(&name)?;
 
             self.name_to_address_dict.remove(&name);
             self.metadata.remove(&name);
@@ -361,7 +360,7 @@ mod azns_registry {
         #[ink(message, payable)]
         pub fn set_primary_domain(&mut self, name: String) -> Result<()> {
             let address = self.env().caller();
-            let resolved = self.get_resolved_address_or_default(&name);
+            let resolved = self.get_address_dict_ref(&name)?.resolved;
 
             /* Ensure the target name resolves to the address */
             if resolved != address {
@@ -380,7 +379,7 @@ mod azns_registry {
             let caller = Self::env().caller();
             self.ensure_controller(&caller, &name)?;
 
-            let mut address_dict = self.get_address_dict_or_default(&name);
+            let mut address_dict = self.get_address_dict_ref(&name)?;
             let old_address = address_dict.resolved;
             address_dict.set_resolved(new_address);
             self.name_to_address_dict.insert(&name, &address_dict);
@@ -412,7 +411,7 @@ mod azns_registry {
             let caller = Self::env().caller();
             self.ensure_controller(&caller, &name)?;
 
-            let mut address_dict = self.get_address_dict_or_default(&name);
+            let mut address_dict = self.get_address_dict_ref(&name)?;
             address_dict.set_controller(new_controller);
             self.name_to_address_dict.insert(&name, &address_dict);
 
@@ -455,22 +454,28 @@ mod azns_registry {
             }
         }
 
+        /// Get the addresses related to specific name
+        #[ink(message)]
+        pub fn get_address_dict(&self, name: String) -> Result<AddressDict> {
+            self.get_address_dict_ref(&name)
+        }
+
         /// Get owner of specific name.
         #[ink(message)]
-        pub fn get_owner(&self, name: String) -> AccountId {
-            self.get_owner_or_default(&name)
+        pub fn get_owner(&self, name: String) -> Result<AccountId> {
+            self.get_address_dict_ref(&name).map(|x| x.owner)
         }
 
         /// Get controller of specific name.
         #[ink(message)]
-        pub fn get_controller(&self, name: String) -> AccountId {
-            self.get_controller_or_default(&name)
+        pub fn get_controller(&self, name: String) -> Result<AccountId> {
+            self.get_address_dict_ref(&name).map(|x| x.controller)
         }
 
         /// Get address for specific name.
         #[ink(message)]
-        pub fn get_address(&self, name: String) -> AccountId {
-            self.get_resolved_address_or_default(&name)
+        pub fn get_address(&self, name: String) -> Result<AccountId> {
+            self.get_address_dict_ref(&name).map(|x| x.resolved)
         }
 
         /// Gets all records
@@ -525,7 +530,7 @@ mod azns_registry {
             };
 
             /* Check that the primary domain actually resolves to the claimed address */
-            let resolved_address = self.get_address(primary_domain.clone());
+            let resolved_address = self.get_address(primary_domain.clone())?;
             if resolved_address != address {
                 /* Resolved address is no longer valid */
                 return Err(Error::NoResolvedAddress);
@@ -630,8 +635,7 @@ mod azns_registry {
             self.ensure_admin()?;
 
             set.iter().for_each(|(name, addr)| {
-                let addr = addr.unwrap_or(self.default_address);
-                self.reserved_names.insert(&name, &addr);
+                self.reserved_names.insert(&name, addr);
             });
             Ok(())
         }
@@ -672,7 +676,7 @@ mod azns_registry {
         }
 
         fn ensure_owner(&self, address: &AccountId, name: &str) -> Result<()> {
-            let AddressDict { owner, .. } = self.get_address_dict_or_default(&name);
+            let AddressDict { owner, .. } = self.get_address_dict_ref(&name)?;
             if address != &owner {
                 Err(Error::CallerIsNotOwner)
             } else {
@@ -684,7 +688,7 @@ mod azns_registry {
             /* Ensure that the address has the right to control the target domain */
             let AddressDict {
                 owner, controller, ..
-            } = self.get_address_dict_or_default(&name);
+            } = self.get_address_dict_ref(&name)?;
 
             if address != &controller && address != &owner {
                 Err(Error::CallerIsNotController)
@@ -781,24 +785,10 @@ mod azns_registry {
             true
         }
 
-        fn get_address_dict_or_default(&self, name: &str) -> AddressDict {
+        fn get_address_dict_ref(&self, name: &str) -> Result<AddressDict> {
             self.name_to_address_dict
                 .get(name)
-                .unwrap_or_else(|| AddressDict::new(self.default_address))
-        }
-
-        /// Returns the owner given the String or the default address.
-        fn get_owner_or_default(&self, name: &str) -> AccountId {
-            self.get_address_dict_or_default(name).owner
-        }
-
-        fn get_controller_or_default(&self, name: &str) -> AccountId {
-            self.get_address_dict_or_default(name).controller
-        }
-
-        /// Returns the address given the String or the default address.
-        fn get_resolved_address_or_default(&self, name: &str) -> AccountId {
-            self.get_address_dict_or_default(name).resolved
+                .ok_or(Error::NameDoesntExist)
         }
     }
 }
@@ -1223,8 +1213,11 @@ mod tests {
             contract.set_address(name.clone(), default_accounts.alice),
             Ok(())
         );
-        assert_eq!(contract.get_owner(name.clone()), default_accounts.alice);
-        assert_eq!(contract.get_address(name.clone()), default_accounts.alice);
+        assert_eq!(contract.get_owner(name.clone()), Ok(default_accounts.alice));
+        assert_eq!(
+            contract.get_address(name.clone()),
+            Ok(default_accounts.alice)
+        );
 
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
@@ -1240,8 +1233,14 @@ mod tests {
         );
 
         assert_eq!(contract.release(name.clone()), Ok(()));
-        assert_eq!(contract.get_owner(name.clone()), Default::default());
-        assert_eq!(contract.get_address(name.clone()), Default::default());
+        assert_eq!(
+            contract.get_owner(name.clone()),
+            Err(Error::NameDoesntExist)
+        );
+        assert_eq!(
+            contract.get_address(name.clone()),
+            Err(Error::NameDoesntExist)
+        );
 
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
@@ -1264,11 +1263,14 @@ mod tests {
             contract.set_address(name.clone(), default_accounts.bob),
             Ok(())
         );
-        assert_eq!(contract.get_owner(name.clone()), default_accounts.bob);
-        assert_eq!(contract.get_address(name.clone()), default_accounts.bob);
+        assert_eq!(contract.get_owner(name.clone()), Ok(default_accounts.bob));
+        assert_eq!(contract.get_address(name.clone()), Ok(default_accounts.bob));
         assert_eq!(contract.release(name.clone()), Ok(()));
-        assert_eq!(contract.get_owner(name.clone()), Default::default());
-        assert_eq!(contract.get_address(name), Default::default());
+        assert_eq!(
+            contract.get_owner(name.clone()),
+            Err(Error::NameDoesntExist)
+        );
+        assert_eq!(contract.get_address(name), Err(Error::NameDoesntExist));
     }
 
     #[ink::test]
@@ -1331,7 +1333,7 @@ mod tests {
         // Caller is controller, set_address will be successful
         set_next_caller(accounts.alice);
         assert_eq!(contract.set_address(name.clone(), accounts.bob), Ok(()));
-        assert_eq!(contract.get_address(name), accounts.bob);
+        assert_eq!(contract.get_address(name), Ok(accounts.bob));
     }
 
     #[ink::test]
@@ -1372,7 +1374,7 @@ mod tests {
         set_next_caller(accounts.bob);
         // Now owner is bob, `set_address` should be successful.
         assert_eq!(contract.set_address(name.clone(), accounts.eve), Ok(()));
-        assert_eq!(contract.get_address(name), accounts.eve);
+        assert_eq!(contract.get_address(name), Ok(accounts.eve));
     }
 
     #[ink::test]
@@ -1439,7 +1441,7 @@ mod tests {
 
         assert_eq!(
             contract.get_domain_status(reserved_name),
-            DomainStatus::Reserved(accounts.alice),
+            DomainStatus::Reserved(Some(accounts.alice)),
         );
 
         // Invocation from non-admin address fails
@@ -1461,7 +1463,7 @@ mod tests {
 
         assert_eq!(
             contract.get_domain_status(reserved_name.clone()),
-            DomainStatus::Reserved(accounts.alice),
+            DomainStatus::Reserved(Some(accounts.alice)),
         );
 
         assert!(contract
@@ -1470,7 +1472,7 @@ mod tests {
 
         assert_ne!(
             contract.get_domain_status(reserved_name),
-            DomainStatus::Reserved(accounts.alice),
+            DomainStatus::Reserved(Some(accounts.alice)),
         );
 
         // Invocation from non-admin address fails
@@ -1532,7 +1534,7 @@ mod tests {
 
         assert_eq!(
             contract.get_domain_status("bob".to_string()),
-            DomainStatus::Reserved(accounts.bob)
+            DomainStatus::Reserved(Some(accounts.bob))
         );
 
         assert_eq!(
