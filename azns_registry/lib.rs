@@ -172,7 +172,6 @@ mod azns_registry {
                     .code_hash(hash)
                     .salt_bytes(salt)
                     .instantiate()
-                // .expect("failed at instantiating the `NameCheckerRef` contract")
             });
 
             // Initializing MerkleVerifier
@@ -182,7 +181,6 @@ mod azns_registry {
                     .code_hash(ch)
                     .salt_bytes(salt)
                     .instantiate()
-                // .expect("failed at instantiating the `MerkleVerifierRef` contract")
             });
 
             let mut contract = Self {
