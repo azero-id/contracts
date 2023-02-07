@@ -6,7 +6,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-ink = { version = "4.0.0-beta", default-features = false }
+ink = { version = "4.0.0-rc", default-features = false }
 
 azns_name_checker = { path = "../azns_name_checker", default-features = false, features = ["ink-as-dependency"] }
 merkle_verifier = { path = "../merkle_verifier", default-features = false, features = ["ink-as-dependency"] }
