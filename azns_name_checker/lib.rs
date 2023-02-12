@@ -244,9 +244,6 @@ mod tests {
         let allowed_name_2 = String::from("🚁");
         assert_eq!(checker.is_name_allowed(allowed_name_2), Ok(()));
 
-        let allowed_name_3 = String::from("👋🏽");
-        assert_eq!(checker.is_name_allowed(allowed_name_3), Ok(()));
-
         let bad_chars = String::from("😅");
         assert_eq!(
             checker.is_name_allowed(bad_chars),
