@@ -5,6 +5,8 @@ pub use self::azns_name_checker::{NameChecker, NameCheckerRef};
 extern crate alloc;
 extern crate unicode_segmentation;
 
+/// Contains the bounds of a Unicode range, with each bound representing a Unicode character
+/// Used to check whether a certain character is allowed by specifying allowed ranges, such as a-z etc.
 #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub struct UnicodeRange {
@@ -14,22 +16,20 @@ pub struct UnicodeRange {
 
 #[ink::contract]
 mod azns_name_checker {
-    use crate::azns_name_checker::Error::{ContainsDisallowedCharacters, TooLong, TooShort};
+    use crate::azns_name_checker::Error::{TooLong, TooShort};
 
-    use crate::alloc::string::ToString;
     use crate::UnicodeRange;
-    use alloc::vec;
     use ink::prelude::string::String;
+    use ink::prelude::vec;
     use ink::prelude::vec::Vec;
-    use unicode_segmentation::UnicodeSegmentation;
 
-    type Min = u64;
-    type Max = u64;
+    type Min = u8;
+    type Max = u8;
 
     #[ink(storage)]
     pub struct NameChecker {
         allowed_unicode_ranges: Vec<UnicodeRange>,
-        disallowed_for_edges: Vec<UnicodeRange>,
+        disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
         allowed_length: (Min, Max),
         admin: AccountId,
     }
@@ -49,65 +49,64 @@ mod azns_name_checker {
     impl NameChecker {
         #[ink(constructor)]
         pub fn new(
-            allowed_length: (u64, u64),
+            allowed_length: (u8, u8),
             allowed_unicode_ranges: Vec<UnicodeRange>,
-            disallowed_for_edges: Vec<UnicodeRange>,
+            disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
         ) -> Self {
             Self {
                 allowed_unicode_ranges,
                 allowed_length,
-                disallowed_for_edges,
+                disallowed_unicode_ranges_for_edges,
                 admin: Self::env().caller(),
             }
         }
 
         #[ink(message)]
-        pub fn is_name_allowed(&self, domain: String) -> Result<bool> {
-            let stripped_domain = self.strip_skin_tones(&domain);
+        pub fn is_name_allowed(&self, domain: String) -> Result<()> {
             /* Check length */
             let (min, max) = self.allowed_length;
-            let len = stripped_domain.len() as u64;
+            let len = domain.chars().count() as u64;
 
             match len {
-                l if l > max => return Err(TooLong),
-                l if l < min => return Err(TooShort),
+                l if l > max as u64 => return Err(TooLong),
+                l if l < min as u64 => return Err(TooShort),
                 _ => (),
             }
 
             /* Check edges */
             let edges = vec![
-                stripped_domain.chars().next().unwrap(),
-                stripped_domain.chars().rev().next().unwrap(),
+                domain.chars().next().unwrap(),
+                domain.chars().rev().next().unwrap(),
             ];
 
             let illegal_edges = edges.iter().any(|char| {
-                self.disallowed_for_edges.iter().any(|range| {
-                    let lower = range.lower;
-                    let upper = range.upper;
+                self.disallowed_unicode_ranges_for_edges
+                    .iter()
+                    .any(|range| {
+                        let lower = range.lower;
+                        let upper = range.upper;
 
-                    let check_char = move |c| lower <= c && c <= upper;
-                    check_char(*char as u32)
-                })
+                        lower <= *char as u32 && *char as u32 <= upper
+                    })
             });
 
             if illegal_edges {
-                return Err(ContainsDisallowedCharacters);
+                return Err(Error::ContainsDisallowedCharacters);
             }
 
             /* Check whole name */
-            let allowed = stripped_domain.chars().all(|char| {
+            let allowed = domain.chars().all(|char| {
                 self.allowed_unicode_ranges.iter().any(|range| {
                     let lower = range.lower;
                     let upper = range.upper;
 
-                    let check_char = move |c| lower <= c && c <= upper;
-                    check_char(char as u32)
+                    lower <= char as u32 && char as u32 <= upper
                 })
             });
 
             match allowed {
-                true => Ok(true),
-                false => Err(ContainsDisallowedCharacters),
+                true => Ok(()),
+                false => Err(Error::ContainsDisallowedCharacters),
             }
         }
 
@@ -127,9 +126,12 @@ mod azns_name_checker {
         }
 
         #[ink(message)]
-        pub fn set_disallowed_for_edges(&mut self, new_ranges: Vec<UnicodeRange>) -> Result<()> {
+        pub fn set_disallowed_unicode_ranges_for_edges(
+            &mut self,
+            new_ranges: Vec<UnicodeRange>,
+        ) -> Result<()> {
             self.ensure_admin()?;
-            self.disallowed_for_edges = new_ranges;
+            self.disallowed_unicode_ranges_for_edges = new_ranges;
             Ok(())
         }
 
@@ -139,37 +141,13 @@ mod azns_name_checker {
             self.allowed_length = new_length;
             Ok(())
         }
-
-        fn strip_skin_tones(&self, s: &str) -> String {
-            fn is_emoji_modifier(c: char) -> bool {
-                match c {
-                    '\u{1f3fb}'...'\u{1f3ff}' => true,
-                    _ => false,
-                }
-            }
-
-            s.graphemes(true)
-                .map(|g| match g.len() {
-                    4 => g.to_string(),
-                    8 => {
-                        if is_emoji_modifier(g.chars().nth(1).unwrap()) {
-                            let base_emoji = g.chars().next().unwrap().to_string();
-                            base_emoji
-                        } else {
-                            g.to_string()
-                        }
-                    }
-                    _ => g.to_string(),
-                })
-                .collect()
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::azns_name_checker::*;
-    use crate::azns_name_checker::Error::{ContainsDisallowedCharacters, TooLong, TooShort};
+    use crate::azns_name_checker::Error;
     use crate::UnicodeRange;
     use ink::prelude::string::String;
 
@@ -191,13 +169,13 @@ mod tests {
         );
 
         let short_name = String::from("a");
-        assert_eq!(checker.is_name_allowed(short_name), Err(TooShort));
+        assert_eq!(checker.is_name_allowed(short_name), Err(Error::TooShort));
 
         let long_name = String::from("abcdef");
-        assert_eq!(checker.is_name_allowed(long_name), Err(TooLong));
+        assert_eq!(checker.is_name_allowed(long_name), Err(Error::TooLong));
 
         let ok_name = String::from("abcd");
-        assert_eq!(checker.is_name_allowed(ok_name), Ok(true));
+        assert_eq!(checker.is_name_allowed(ok_name), Ok(()));
     }
 
     #[ink::test]
@@ -222,15 +200,15 @@ mod tests {
         );
 
         let allowed_name = String::from("abcd");
-        assert_eq!(checker.is_name_allowed(allowed_name), Ok(true));
+        assert_eq!(checker.is_name_allowed(allowed_name), Ok(()));
 
         let allowed_name_2 = String::from("abc-d");
-        assert_eq!(checker.is_name_allowed(allowed_name_2), Ok(true));
+        assert_eq!(checker.is_name_allowed(allowed_name_2), Ok(()));
 
         let bad_chars = String::from("***");
         assert_eq!(
             checker.is_name_allowed(bad_chars),
-            Err(ContainsDisallowedCharacters)
+            Err(Error::ContainsDisallowedCharacters)
         );
     }
 
@@ -261,18 +239,18 @@ mod tests {
         );
 
         let allowed_name = String::from("😁");
-        assert_eq!(checker.is_name_allowed(allowed_name), Ok(true));
+        assert_eq!(checker.is_name_allowed(allowed_name), Ok(()));
 
         let allowed_name_2 = String::from("🚁");
-        assert_eq!(checker.is_name_allowed(allowed_name_2), Ok(true));
+        assert_eq!(checker.is_name_allowed(allowed_name_2), Ok(()));
 
         let allowed_name_3 = String::from("👋🏽");
-        assert_eq!(checker.is_name_allowed(allowed_name_3), Ok(true));
+        assert_eq!(checker.is_name_allowed(allowed_name_3), Ok(()));
 
         let bad_chars = String::from("😅");
         assert_eq!(
             checker.is_name_allowed(bad_chars),
-            Err(ContainsDisallowedCharacters)
+            Err(Error::ContainsDisallowedCharacters)
         );
     }
 
@@ -301,18 +279,18 @@ mod tests {
         );
 
         let ok_edge = String::from("a-bcd");
-        assert_eq!(checker.is_name_allowed(ok_edge), Ok(true));
+        assert_eq!(checker.is_name_allowed(ok_edge), Ok(()));
 
         let disallowed_edge = String::from("-abcd");
         assert_eq!(
             checker.is_name_allowed(disallowed_edge),
-            Err(ContainsDisallowedCharacters)
+            Err(Error::ContainsDisallowedCharacters)
         );
 
         let disallowed_edge_2 = String::from("abcd-");
         assert_eq!(
             checker.is_name_allowed(disallowed_edge_2),
-            Err(ContainsDisallowedCharacters)
+            Err(Error::ContainsDisallowedCharacters)
         );
     }
 }
