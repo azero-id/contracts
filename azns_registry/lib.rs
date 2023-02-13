@@ -262,9 +262,15 @@ mod azns_registry {
             } else {
                 // Referral system is active only after whitelist-phase is over
                 if let Some(referrer_name) = referrer {
-                    if let Ok(resolved) = self.get_address(referrer_name) {
-                        affiliate = Some(resolved);
-                        discount = 5 * domain_price / 100; // 5% discount
+                    let address_dict = self.get_address_dict_ref(&referrer_name);
+                    if let Ok(x) = address_dict {
+                        if recipient != x.owner
+                            && recipient != x.controller
+                            && recipient != x.resolved
+                        {
+                            affiliate = Some(x.resolved);
+                            discount = 5 * domain_price / 100; // 5% discount
+                        }
                     }
                 }
             }
@@ -1640,6 +1646,40 @@ mod tests {
 
         // Affiliation payment to alice
         assert_eq!(alice_balance, 50);
+    }
+
+    #[ink::test]
+    fn self_referral_not_allowed() {
+        let default_accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        set_callee::<DefaultEnvironment>(default_accounts.eve);
+        assert_eq!(contract.env().account_id(), default_accounts.eve);
+
+        let alice = "alice".to_string();
+        let wonderland = "wonderland".to_string();
+
+        // 1. Register first name without referrer
+        let fees = 1000;
+        set_next_caller(default_accounts.alice);
+        set_account_balance::<DefaultEnvironment>(default_accounts.alice, fees);
+        set_callee::<DefaultEnvironment>(contract.env().account_id());
+        transfer_in::<DefaultEnvironment>(fees);
+        assert_eq!(contract.register(alice.clone(), None, None, false), Ok(()));
+
+        // 2. Self-referral doesn't work
+        set_account_balance::<DefaultEnvironment>(default_accounts.alice, fees);
+        transfer_in::<DefaultEnvironment>(fees);
+        assert_eq!(
+            contract.register(wonderland, Some(alice), None, false),
+            Ok(())
+        );
+
+        let alice_balance =
+            get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
+
+        // No bonus received by alice
+        assert_eq!(alice_balance, 0);
     }
 
     // TODO Need cross-contract test support
