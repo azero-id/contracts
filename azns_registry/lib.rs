@@ -822,7 +822,7 @@ mod azns_registry {
 
             /* Name must be legal */
             if let Some(name_checker) = &self.name_checker {
-                if name_checker.is_name_allowed(name.to_string()) != Ok(true) {
+                if name_checker.is_name_allowed(name.to_string()) != Ok(()) {
                     return false;
                 }
             }
