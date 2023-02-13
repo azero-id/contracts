@@ -8,7 +8,7 @@ mod azns_registry {
     use ink::env::hash::CryptoHash;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
-    use ink::storage::traits::ManualKey;
+    use ink::storage::traits::{ManualKey, Packed};
     use ink::storage::{Lazy, Mapping};
 
     use azns_name_checker::NameCheckerRef;
@@ -105,6 +105,9 @@ mod azns_registry {
 
         /// Merkle Verifier used to identifiy whitelisted addresses
         whitelisted_address_verifier: Lazy<Option<MerkleVerifierRef>, ManualKey<999>>,
+
+        /// TLD
+        tld: String,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -163,6 +166,7 @@ mod azns_registry {
             allowed_length: (u8, u8),
             allowed_unicode_ranges: Vec<UnicodeRange>,
             disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
+            tld: Option<String>,
         ) -> Self {
             let caller = Self::env().caller();
 
@@ -191,6 +195,11 @@ mod azns_registry {
                     .instantiate()
             });
 
+            let actual_tld = match tld {
+                Some(tld) => tld,
+                None => "azero".to_owned(),
+            };
+
             let mut contract = Self {
                 admin: caller,
                 name_checker,
@@ -202,6 +211,7 @@ mod azns_registry {
                 resolving_to_address: Default::default(),
                 whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
+                tld: actual_tld,
             };
 
             // Initialize address verifier
@@ -378,6 +388,9 @@ mod azns_registry {
             self.add_name_to_controller(&to, &name);
             self.add_name_to_resolving(&to, &name);
 
+            /* Clear metadata */
+            self.metadata.remove(&name);
+
             Self::env().emit_event(Transfer {
                 name,
                 from: caller,
@@ -490,6 +503,16 @@ mod azns_registry {
             Ok(())
         }
 
+        // fn log_size_of_mapping<K, V: Packed>(&self, mapping: Mapping<K, V>) -> u64 {
+        //     let mut size = 0;
+        //     for (_, value) in mapping.iter() {
+        //         size += value.len();
+        //     }
+        //     // Assume a constant overhead of 32 bytes per entry in the mapping.
+        //     size += 32 * mapping.len();
+        //     size
+        // }
+
         fn update_metadata(
             &self,
             metadata: Vec<(String, String)>,
@@ -558,7 +581,7 @@ mod azns_registry {
 
         /// Gets all records
         #[ink(message)]
-        pub fn get_metadata(&self, name: String) -> Result<Vec<(String, String)>> {
+        pub fn get_records(&self, name: String) -> Result<Vec<(String, String)>> {
             if let Some(info) = self.metadata.get(name) {
                 Ok(info)
             } else {
@@ -568,7 +591,7 @@ mod azns_registry {
 
         /// Gets an arbitrary record by key
         #[ink(message)]
-        pub fn get_metadata_by_key(&self, name: String, key: String) -> Result<String> {
+        pub fn get_record(&self, name: String, key: String) -> Result<String> {
             return if let Some(info) = self.metadata.get(name) {
                 if let Some(value) = info.iter().find(|tuple| tuple.0 == key) {
                     Ok(value.clone().1)
@@ -918,6 +941,7 @@ mod tests {
                 lower: '-' as u32,
                 upper: '-' as u32,
             }],
+            None,
         )
     }
 
@@ -1510,7 +1534,7 @@ mod tests {
         );
         assert_eq!(
             contract
-                .get_metadata_by_key(domain_name.clone(), key.clone())
+                .get_record(domain_name.clone(), key.clone())
                 .unwrap(),
             value
         );
@@ -1521,9 +1545,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract
-                .get_metadata_by_key(domain_name.clone(), key)
-                .unwrap(),
+            contract.get_record(domain_name.clone(), key).unwrap(),
             value
         );
 
@@ -1536,7 +1558,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract.get_metadata(domain_name).unwrap(),
+            contract.get_records(domain_name).unwrap(),
             Vec::from([("twitter".to_string(), "@newtest".to_string())])
         );
     }
@@ -1564,7 +1586,7 @@ mod tests {
         );
         assert_eq!(
             contract
-                .get_metadata_by_key(domain_name.clone(), key.clone())
+                .get_record(domain_name.clone(), key.clone())
                 .unwrap(),
             value
         );
@@ -1575,9 +1597,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract
-                .get_metadata_by_key(domain_name.clone(), key)
-                .unwrap(),
+            contract.get_record(domain_name.clone(), key).unwrap(),
             value
         );
 
@@ -1590,7 +1610,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract.get_metadata(domain_name).unwrap(),
+            contract.get_records(domain_name).unwrap(),
             Vec::from([("twitter".to_string(), "@newtest".to_string())])
         );
     }
@@ -1711,6 +1731,7 @@ mod tests {
                 lower: '-' as u32,
                 upper: '-' as u32,
             }],
+            None,
         );
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
