@@ -1542,6 +1542,60 @@ mod tests {
     }
 
     #[ink::test]
+    fn set_record_works() {
+        let accounts = default_accounts();
+        let key = String::from("twitter");
+        let value = String::from("@test");
+
+        let domain_name = "test".to_string();
+
+        set_next_caller(accounts.alice);
+        let mut contract = get_test_name_service();
+
+        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
+        assert_eq!(
+            contract.register(domain_name.clone(), None, None, false),
+            Ok(())
+        );
+
+        assert_eq!(
+            contract.set_record(domain_name.clone(), (key.clone(), value.clone())),
+            Ok(())
+        );
+        assert_eq!(
+            contract
+                .get_metadata_by_key(domain_name.clone(), key.clone())
+                .unwrap(),
+            value
+        );
+
+        /* Confirm idempotency */
+        assert_eq!(
+            contract.set_record(domain_name.clone(), (key.clone(), value.clone())),
+            Ok(())
+        );
+        assert_eq!(
+            contract
+                .get_metadata_by_key(domain_name.clone(), key)
+                .unwrap(),
+            value
+        );
+
+        /* Confirm overwriting */
+        assert_eq!(
+            contract.set_record(
+                domain_name.clone(),
+                ("twitter".to_string(), "@newtest".to_string()),
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            contract.get_metadata(domain_name).unwrap(),
+            Vec::from([("twitter".to_string(), "@newtest".to_string())])
+        );
+    }
+
+    #[ink::test]
     fn add_reserved_domains_works() {
         let accounts = default_accounts();
         let mut contract = get_test_name_service();
