@@ -5,7 +5,6 @@ mod address_dict;
 #[ink::contract]
 mod azns_registry {
     use crate::address_dict::AddressDict;
-    use azns_name_checker::get_domain_price;
     use ink::env::hash::CryptoHash;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
@@ -83,6 +82,8 @@ mod azns_registry {
         admin: AccountId,
         /// Contract which verifies the validity of a name
         name_checker: Option<NameCheckerRef>,
+        /// Contract which calculates the name price
+        fee_calculator: Option<azns_fee_calculator::AznsFeeCalculatorRef>,
         /// Names which can be claimed only by the specified user
         reserved_names: Mapping<String, Option<AccountId>, ManualKey<100>>,
 
@@ -148,6 +149,8 @@ mod azns_registry {
         NotReservedDomain,
         /// User is not authorised to claim the given domain
         NotAuthorised,
+        /// Thrown when fee_calculator doesn't return a names' price
+        FeeError(azns_fee_calculator::Error),
     }
 
     impl DomainNameService {
@@ -155,6 +158,7 @@ mod azns_registry {
         #[ink(constructor)]
         pub fn new(
             name_checker_hash: Option<Hash>,
+            fee_calculator: Option<azns_fee_calculator::AznsFeeCalculatorRef>,
             merkle_verifier_hash: Option<Hash>,
             merkle_root: [u8; 32],
             reserved_domains: Option<Vec<(String, Option<AccountId>)>>,
@@ -186,6 +190,7 @@ mod azns_registry {
             let mut contract = Self {
                 admin: caller,
                 name_checker,
+                fee_calculator,
                 name_to_address_dict: Mapping::default(),
                 owner_to_names: Default::default(),
                 metadata: Default::default(),
@@ -229,8 +234,8 @@ mod azns_registry {
                 return Err(Error::CannotBuyReservedDomain);
             }
 
-            // (TODO) call the domain-price function
-            let domain_price = 1000;
+            // Call the domain-price function
+            let domain_price = self.get_name_price(&name, 1)?;
             // Discount as a part of referral-system
             let mut discount: Balance = 0;
             // Affiliate Address
@@ -809,6 +814,15 @@ mod azns_registry {
             true
         }
 
+        fn get_name_price(&self, name: &str, duration: u8) -> Result<Balance> {
+            match &self.fee_calculator {
+                None => Ok(1000), // For unit testing only
+                Some(model) => model
+                    .get_name_price(name.to_string(), duration)
+                    .map_err(|e| Error::FeeError(e)),
+            }
+        }
+
         fn get_address_dict_ref(&self, name: &str) -> Result<AddressDict> {
             self.name_to_address_dict
                 .get(name)
@@ -837,7 +851,7 @@ mod tests {
     }
 
     fn get_test_name_service() -> DomainNameService {
-        DomainNameService::new(None, None, [0u8; 32], None, None)
+        DomainNameService::new(None, None, None, [0u8; 32], None, None)
     }
 
     #[ink::test]
@@ -1551,7 +1565,8 @@ mod tests {
     fn get_domain_status_works() {
         let accounts = default_accounts();
         let reserved_list = vec![("bob".to_string(), Some(accounts.bob))];
-        let mut contract = DomainNameService::new(None, None, [0u8; 32], Some(reserved_list), None);
+        let mut contract =
+            DomainNameService::new(None, None, None, [0u8; 32], Some(reserved_list), None);
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
         contract

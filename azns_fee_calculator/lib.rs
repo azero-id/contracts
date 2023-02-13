@@ -27,6 +27,8 @@ macro_rules! ensure {
     }};
 }
 
+pub use azns_fee_calculator::{AznsFeeCalculator, AznsFeeCalculatorRef};
+
 #[ink::contract]
 mod azns_fee_calculator {
     use super::*;
