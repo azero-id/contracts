@@ -159,6 +159,9 @@ mod azns_registry {
             merkle_root: [u8; 32],
             reserved_domains: Option<Vec<(String, Option<AccountId>)>>,
             version: Option<u32>,
+            allowed_length: (u8, u8),
+            allowed_unicode_ranges: Vec<UnicodeRange>,
+            disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
         ) -> Self {
             let caller = Self::env().caller();
 
@@ -168,25 +171,9 @@ mod azns_registry {
 
             let name_checker = name_checker_hash.map(|hash| {
                 NameCheckerRef::new(
-                    (5, 99),
-                    vec![
-                        UnicodeRange {
-                            lower: 'a' as u32,
-                            upper: 'z' as u32,
-                        },
-                        UnicodeRange {
-                            lower: '0' as u32,
-                            upper: '9' as u32,
-                        },
-                        UnicodeRange {
-                            lower: '-' as u32,
-                            upper: '-' as u32,
-                        },
-                    ],
-                    vec![UnicodeRange {
-                        lower: '-' as u32,
-                        upper: '-' as u32,
-                    }],
+                    allowed_length,
+                    allowed_unicode_ranges,
+                    disallowed_unicode_ranges_for_edges,
                 )
                 .endowment(total_balance / 4) // TODO why /4?
                 .code_hash(hash)
@@ -840,12 +827,14 @@ mod azns_registry {
 #[cfg(test)]
 mod tests {
     use super::azns_registry::*;
+    use azns_name_checker::UnicodeRange;
     use ink::codegen::Env;
     use ink::env::test::*;
     use ink::env::DefaultEnvironment;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
     use ink::primitives::AccountId;
+
     type Balance = u128;
 
     fn default_accounts() -> DefaultAccounts<DefaultEnvironment> {
@@ -857,7 +846,32 @@ mod tests {
     }
 
     fn get_test_name_service() -> DomainNameService {
-        DomainNameService::new(None, None, [0u8; 32], None, None)
+        DomainNameService::new(
+            None,
+            None,
+            [0u8; 32],
+            None,
+            None,
+            (5, 99),
+            vec![
+                UnicodeRange {
+                    lower: 'a' as u32,
+                    upper: 'z' as u32,
+                },
+                UnicodeRange {
+                    lower: '0' as u32,
+                    upper: '9' as u32,
+                },
+                UnicodeRange {
+                    lower: '-' as u32,
+                    upper: '-' as u32,
+                },
+            ],
+            vec![UnicodeRange {
+                lower: '-' as u32,
+                upper: '-' as u32,
+            }],
+        )
     }
 
     #[ink::test]
@@ -1571,7 +1585,32 @@ mod tests {
     fn get_domain_status_works() {
         let accounts = default_accounts();
         let reserved_list = vec![("bob".to_string(), Some(accounts.bob))];
-        let mut contract = DomainNameService::new(None, None, [0u8; 32], Some(reserved_list), None);
+        let mut contract = DomainNameService::new(
+            None,
+            None,
+            [0u8; 32],
+            Some(reserved_list),
+            None,
+            (5, 99),
+            vec![
+                UnicodeRange {
+                    lower: 'a' as u32,
+                    upper: 'z' as u32,
+                },
+                UnicodeRange {
+                    lower: '0' as u32,
+                    upper: '9' as u32,
+                },
+                UnicodeRange {
+                    lower: '-' as u32,
+                    upper: '-' as u32,
+                },
+            ],
+            vec![UnicodeRange {
+                lower: '-' as u32,
+                upper: '-' as u32,
+            }],
+        );
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
         contract
