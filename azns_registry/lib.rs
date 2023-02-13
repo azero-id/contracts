@@ -88,6 +88,7 @@ mod azns_registry {
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
+
         /// Metadata
         metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
 
@@ -469,6 +470,52 @@ mod azns_registry {
             self.metadata.insert(name, &records);
 
             Ok(())
+        }
+
+        /// Sets one record
+        #[ink(message)]
+        pub fn set_record(&mut self, name: String, record: (String, String)) -> Result<()> {
+            /* Ensure that the caller is a controller */
+            let caller: AccountId = Self::env().caller();
+            self.ensure_controller(&caller, &name)?;
+
+            /* Previous records */
+            if let Some(metadata) = self.metadata.get(&name) {
+                let updated_metadata = self.update_metadata(metadata, &record.0, &record.1);
+                self.metadata.insert(name, &updated_metadata);
+            } else {
+                self.metadata.insert(name, &vec![record]);
+            }
+
+            Ok(())
+        }
+
+        fn update_metadata(
+            &self,
+            metadata: Vec<(String, String)>,
+            key: &str,
+            value: &str,
+        ) -> Vec<(String, String)> {
+            let mut found = false;
+            let updated_metadata: Vec<(String, String)> = metadata
+                .into_iter()
+                .map(|(k, v)| {
+                    if k == key {
+                        found = true;
+                        (k, value.to_owned())
+                    } else {
+                        (k, v)
+                    }
+                })
+                .collect();
+
+            if !found {
+                let mut updated_metadata = updated_metadata;
+                updated_metadata.push((key.to_owned(), value.to_owned()));
+                updated_metadata
+            } else {
+                updated_metadata
+            }
         }
 
         /// Returns the current status of the domain
