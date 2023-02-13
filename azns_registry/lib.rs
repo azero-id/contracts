@@ -11,7 +11,8 @@ mod azns_registry {
     use ink::storage::traits::ManualKey;
     use ink::storage::{Lazy, Mapping};
 
-    use azns_name_checker::{NameCheckerRef, UnicodeRange};
+    use azns_name_checker::NameCheckerRef;
+    use azns_name_checker::UnicodeRange;
     use merkle_verifier::MerkleVerifierRef;
 
     pub type Result<T> = core::result::Result<T, Error>;
@@ -191,7 +192,6 @@ mod azns_registry {
                 .code_hash(hash)
                 .salt_bytes(salt)
                 .instantiate()
-                .expect("failed at instantiating the `NameCheckerRef` contract")
             });
 
             // Initializing MerkleVerifier
@@ -201,7 +201,6 @@ mod azns_registry {
                     .code_hash(ch)
                     .salt_bytes(salt)
                     .instantiate()
-                    .expect("failed at instantiating the `MerkleVerifierRef` contract")
             });
 
             let mut contract = Self {
@@ -288,6 +287,8 @@ mod azns_registry {
             /* Make sure the register is paid for */
             let _transferred = Self::env().transferred_value();
             if _transferred < domain_price - discount {
+                return Err(Error::FeeNotPaid);
+            }
 
             self.register_domain(&name, &recipient)?;
 
