@@ -10,8 +10,6 @@ pub enum Error {
     NotAdmin,
     /// Given registration duration is not allowed.
     InvalidDuration,
-    /// Given name length is not allowed.
-    InvalidLength,
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -44,10 +42,6 @@ mod azns_fee_calculator {
         admin: AccountId,
         /// Maximum registration duration allowed (in years)
         max_registration_duration: u8,
-        /// Minimum length of a name allowed
-        min_length: Length,
-        /// Maximum length of a name allowed
-        max_length: Length,
         /// If no specific price found for a given length then this will be used
         common_price: Balance,
         /// Set price for specific name length
@@ -60,18 +54,21 @@ mod azns_fee_calculator {
         pub fn new(
             admin: AccountId,
             max_registration_duration: u8,
-            min_length: Length,
-            max_length: Length,
             common_price: Balance,
+            price_points: Vec<(Length, Balance)>,
         ) -> Self {
-            Self {
+            let mut contract = Self {
                 admin,
                 max_registration_duration,
-                min_length,
-                max_length,
                 common_price,
                 price_by_length: Default::default(),
-            }
+            };
+
+            price_points.iter().for_each(|(length, price)| {
+                contract.price_by_length.insert(length, price);
+            });
+
+            contract
         }
 
         #[ink(message)]
@@ -95,20 +92,6 @@ mod azns_fee_calculator {
         pub fn set_max_registration_duration(&mut self, duration: u8) -> Result<()> {
             self.ensure_admin()?;
             self.max_registration_duration = duration;
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn set_min_length(&mut self, length: Length) -> Result<()> {
-            self.ensure_admin()?;
-            self.min_length = length;
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn set_max_length(&mut self, length: Length) -> Result<()> {
-            self.ensure_admin()?;
-            self.max_length = length;
             Ok(())
         }
 
@@ -160,11 +143,6 @@ mod azns_fee_calculator {
         }
 
         fn get_base_price(&self, len: Length) -> Result<Balance> {
-            ensure!(
-                self.min_length <= len && len <= self.max_length,
-                Error::InvalidLength
-            );
-
             let price = self.price_by_length.get(&len).unwrap_or(self.common_price);
             Ok(price)
         }
