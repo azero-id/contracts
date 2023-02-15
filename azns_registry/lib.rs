@@ -16,6 +16,8 @@ mod azns_registry {
     use azns_name_checker::UnicodeRange;
     use merkle_verifier::MerkleVerifierRef;
 
+    const YEAR: u64 = 365 * 24 * 60 * 60 * 1000; // Year in milliseconds
+
     pub type Result<T> = core::result::Result<T, Error>;
 
     /// Different states of a domain
@@ -91,6 +93,8 @@ mod azns_registry {
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
+        /// Mapping from name to its expiry timestamp
+        name_to_expiry: Mapping<String, u64>,
         /// Metadata
         metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
 
@@ -204,6 +208,7 @@ mod azns_registry {
                 name_checker,
                 fee_calculator,
                 name_to_address_dict: Mapping::default(),
+                name_to_expiry: Mapping::default(),
                 owner_to_names: Default::default(),
                 metadata: Default::default(),
                 address_to_primary_domain: Default::default(),
@@ -293,7 +298,8 @@ mod azns_registry {
                 return Err(Error::FeeNotPaid);
             }
 
-            self.register_domain(&name, &recipient)?;
+            let expiry_time = self.env().block_timestamp() + YEAR;
+            self.register_domain(&name, &recipient, expiry_time)?;
 
             // Pay the affiliate (if present) after successful registration
             if let Some(usr) = affiliate {
@@ -336,11 +342,13 @@ mod azns_registry {
                 return Err(Error::NotAuthorised);
             }
 
-            self.register_domain(&name, &caller).and_then(|_| {
-                // Remove the domain from the list once claimed
-                self.reserved_names.remove(name);
-                Ok(())
-            })
+            let expiry_time = self.env().block_timestamp() + YEAR;
+            self.register_domain(&name, &caller, expiry_time)
+                .and_then(|_| {
+                    // Remove the domain from the list once claimed
+                    self.reserved_names.remove(name);
+                    Ok(())
+                })
         }
 
         /// Release domain from registration.
@@ -490,7 +498,7 @@ mod azns_registry {
         /// Returns the current status of the domain
         #[ink(message)]
         pub fn get_domain_status(&self, name: String) -> DomainStatus {
-            if let Some(user) = self.name_to_address_dict.get(&name) {
+            if let Ok(user) = self.get_address_dict_ref(&name) {
                 DomainStatus::Registered(user.owner)
             } else if let Some(user) = self.reserved_names.get(&name) {
                 DomainStatus::Reserved(user)
@@ -525,34 +533,36 @@ mod azns_registry {
             self.get_address_dict_ref(&name).map(|x| x.resolved)
         }
 
+        #[ink(message)]
+        pub fn get_expiry_date(&self, name: String) -> Result<u64> {
+            self.name_to_expiry.get(&name).ok_or(Error::NameDoesntExist)
+        }
+
         /// Gets all records
         #[ink(message)]
         pub fn get_metadata(&self, name: String) -> Result<Vec<(String, String)>> {
-            if let Some(info) = self.metadata.get(name) {
-                Ok(info)
-            } else {
-                Err(Error::NoRecordsForAddress)
-            }
+            self.get_metadata_ref(&name)
         }
 
         /// Gets an arbitrary record by key
         #[ink(message)]
         pub fn get_metadata_by_key(&self, name: String, key: String) -> Result<String> {
-            return if let Some(info) = self.metadata.get(name) {
-                if let Some(value) = info.iter().find(|tuple| tuple.0 == key) {
-                    Ok(value.clone().1)
-                } else {
-                    Err(Error::RecordNotFound)
-                }
-            } else {
-                Err(Error::NoRecordsForAddress)
-            };
+            let info = self.get_metadata_ref(&name)?;
+            match info.iter().find(|tuple| tuple.0 == key) {
+                Some(val) => Ok(val.clone().1),
+                None => Err(Error::RecordNotFound),
+            }
         }
 
         /// Returns all names the address owns
         #[ink(message)]
         pub fn get_owned_names_of_address(&self, owner: AccountId) -> Option<Vec<String>> {
-            self.owner_to_names.get(owner)
+            self.owner_to_names.get(owner).map(|names| {
+                names
+                    .into_iter()
+                    .filter(|name| self.has_name_expired(&name) == Ok(false))
+                    .collect()
+            })
         }
 
         #[ink(message)]
@@ -560,12 +570,22 @@ mod azns_registry {
             &self,
             controller: AccountId,
         ) -> Option<Vec<String>> {
-            self.controller_to_names.get(controller)
+            self.controller_to_names.get(controller).map(|names| {
+                names
+                    .into_iter()
+                    .filter(|name| self.has_name_expired(&name) == Ok(false))
+                    .collect()
+            })
         }
 
         #[ink(message)]
         pub fn get_resolving_names_of_address(&self, address: AccountId) -> Option<Vec<String>> {
-            self.resolving_to_address.get(address)
+            self.resolving_to_address.get(address).map(|names| {
+                names
+                    .into_iter()
+                    .filter(|name| self.has_name_expired(&name) == Ok(false))
+                    .collect()
+            })
         }
 
         #[ink(message)]
@@ -744,7 +764,13 @@ mod azns_registry {
             }
         }
 
-        fn register_domain(&mut self, name: &str, recipient: &AccountId) -> Result<()> {
+        fn register_domain(
+            &mut self,
+            name: &str,
+            recipient: &AccountId,
+            expiry: u64,
+        ) -> Result<()> {
+            // TODO Incase an expired domain is in state. Clean it before overwriting
             /* Ensure domain is not already registered */
             if self.name_to_address_dict.contains(name) {
                 return Err(Error::NameAlreadyExists);
@@ -752,6 +778,7 @@ mod azns_registry {
 
             let address_dict = AddressDict::new(recipient.clone());
             self.name_to_address_dict.insert(name, &address_dict);
+            self.name_to_expiry.insert(name, &expiry);
 
             /* Update convenience mapping for owned domains */
             self.add_name_to_owner(recipient, name);
@@ -844,7 +871,22 @@ mod azns_registry {
         fn get_address_dict_ref(&self, name: &str) -> Result<AddressDict> {
             self.name_to_address_dict
                 .get(name)
+                .filter(|_| self.has_name_expired(name) == Ok(false))
                 .ok_or(Error::NameDoesntExist)
+        }
+
+        fn get_metadata_ref(&self, name: &str) -> Result<Vec<(String, String)>> {
+            self.metadata
+                .get(name)
+                .filter(|_| self.has_name_expired(name) == Ok(false))
+                .ok_or(Error::NoRecordsForAddress)
+        }
+
+        fn has_name_expired(&self, name: &str) -> Result<bool> {
+            match self.name_to_expiry.get(name) {
+                Some(expiry) => Ok(expiry > self.env().block_timestamp()),
+                None => Err(Error::NameDoesntExist),
+            }
         }
     }
 }
