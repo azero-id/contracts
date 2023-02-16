@@ -6,9 +6,11 @@ mod address_dict;
 mod azns_registry {
     use crate::address_dict::AddressDict;
     use ink::env::hash::CryptoHash;
+    use ink::prelude::borrow::ToOwned;
     use ink::prelude::string::{String, ToString};
+    use ink::prelude::vec;
     use ink::prelude::vec::Vec;
-    use ink::storage::traits::{ManualKey, Packed};
+    use ink::storage::traits::ManualKey;
     use ink::storage::{Lazy, Mapping};
 
     use azns_name_checker::NameCheckerRef;
