@@ -369,14 +369,8 @@ mod azns_registry {
 
             let caller = Self::env().caller();
             self.ensure_owner(&caller, &name)?;
-            let address_dict = self.get_address_dict_ref(&name)?;
 
-            self.name_to_address_dict.remove(&name);
-            self.metadata.remove(&name);
-
-            self.remove_name_from_owner(&address_dict.owner, &name);
-            self.remove_name_from_controller(&address_dict.controller, &name);
-            self.remove_name_from_resolving(&address_dict.resolved, &name);
+            self.remove_name(&name);
 
             Self::env().emit_event(Release { name, from: caller });
 
@@ -778,10 +772,10 @@ mod azns_registry {
             recipient: &AccountId,
             expiry: u64,
         ) -> Result<()> {
-            // TODO Incase an expired domain is in state. Clean it before overwriting
-            /* Ensure domain is not already registered */
-            if self.name_to_address_dict.contains(name) {
-                return Err(Error::NameAlreadyExists);
+            match self.has_name_expired(&name) {
+                Ok(false) => return Err(Error::NameAlreadyExists), // Domain is already registered
+                Ok(true) => self.remove_name(&name), // Clean the expired domain state first
+                _ => (),                             // Domain is available
             }
 
             let address_dict = AddressDict::new(recipient.clone());
@@ -804,6 +798,20 @@ mod azns_registry {
             });
 
             Ok(())
+        }
+
+        fn remove_name(&mut self, name: &str) {
+            let Ok(address_dict) = self.get_address_dict_ref(&name) else {
+                return;
+            };
+
+            self.name_to_address_dict.remove(name);
+            self.name_to_expiry.remove(name);
+            self.metadata.remove(name);
+
+            self.remove_name_from_owner(&address_dict.owner, &name);
+            self.remove_name_from_controller(&address_dict.controller, &name);
+            self.remove_name_from_resolving(&address_dict.resolved, &name);
         }
 
         /// Adds a name to owners' collection
