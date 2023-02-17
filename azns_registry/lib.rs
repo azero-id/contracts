@@ -413,6 +413,20 @@ mod azns_registry {
             Ok(())
         }
 
+        /// Removes the associated state of expired-domains from storage
+        #[ink(message)]
+        pub fn clear_expired_names(&mut self, names: Vec<String>) -> Result<u128> {
+            let mut count = 0;
+            names.into_iter().for_each(|name| {
+                // Verify the name has expired
+                if self.has_name_expired(&name) == Ok(true) {
+                    self.remove_name(&name);
+                    count += 1;
+                }
+            });
+            Ok(count)
+        }
+
         /// Set primary domain of an address (reverse record)
         #[ink(message, payable)]
         pub fn set_primary_domain(&mut self, name: String) -> Result<()> {
