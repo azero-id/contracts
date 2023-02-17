@@ -513,16 +513,20 @@ mod azns_registry {
 
         /// Returns the current status of the domain
         #[ink(message)]
-        pub fn get_domain_status(&self, name: String) -> DomainStatus {
-            if let Ok(user) = self.get_address_dict_ref(&name) {
-                DomainStatus::Registered(user.owner)
-            } else if let Some(user) = self.reserved_names.get(&name) {
-                DomainStatus::Reserved(user)
-            } else if self.is_name_allowed(&name) {
-                DomainStatus::Available
-            } else {
-                DomainStatus::Unavailable
-            }
+        pub fn get_domain_status(&self, names: Vec<String>) -> Vec<DomainStatus> {
+            let status = |name: String| {
+                if let Ok(user) = self.get_address_dict_ref(&name) {
+                    DomainStatus::Registered(user.owner)
+                } else if let Some(user) = self.reserved_names.get(&name) {
+                    DomainStatus::Reserved(user)
+                } else if self.is_name_allowed(&name) {
+                    DomainStatus::Available
+                } else {
+                    DomainStatus::Unavailable
+                }
+            };
+
+            names.into_iter().map(status).collect()
         }
 
         /// Get the addresses related to specific name
@@ -1662,8 +1666,8 @@ mod tests {
         assert!(contract.add_reserved_domains(list).is_ok());
 
         assert_eq!(
-            contract.get_domain_status(reserved_name),
-            DomainStatus::Reserved(Some(accounts.alice)),
+            contract.get_domain_status(vec![reserved_name]),
+            vec![DomainStatus::Reserved(Some(accounts.alice))],
         );
 
         // Invocation from non-admin address fails
@@ -1684,8 +1688,8 @@ mod tests {
         assert!(contract.add_reserved_domains(list).is_ok());
 
         assert_eq!(
-            contract.get_domain_status(reserved_name.clone()),
-            DomainStatus::Reserved(Some(accounts.alice)),
+            contract.get_domain_status(vec![reserved_name.clone()]),
+            vec![DomainStatus::Reserved(Some(accounts.alice))],
         );
 
         assert!(contract
@@ -1693,8 +1697,8 @@ mod tests {
             .is_ok());
 
         assert_ne!(
-            contract.get_domain_status(reserved_name),
-            DomainStatus::Reserved(Some(accounts.alice)),
+            contract.get_domain_status(vec![reserved_name]),
+            vec![DomainStatus::Reserved(Some(accounts.alice))],
         );
 
         // Invocation from non-admin address fails
@@ -1733,8 +1737,8 @@ mod tests {
         assert!(contract.claim_reserved_domain(name.clone()).is_ok());
 
         assert_eq!(
-            contract.get_domain_status(name),
-            DomainStatus::Registered(accounts.bob),
+            contract.get_domain_status(vec![name]),
+            vec![DomainStatus::Registered(accounts.bob)],
         );
     }
 
@@ -1777,23 +1781,23 @@ mod tests {
             .expect("failed to register domain");
 
         assert_eq!(
-            contract.get_domain_status("alice".to_string()),
-            DomainStatus::Registered(accounts.alice)
+            contract.get_domain_status(vec!["alice".to_string()]),
+            vec![DomainStatus::Registered(accounts.alice)]
         );
 
         assert_eq!(
-            contract.get_domain_status("bob".to_string()),
-            DomainStatus::Reserved(Some(accounts.bob))
+            contract.get_domain_status(vec!["bob".to_string()]),
+            vec![DomainStatus::Reserved(Some(accounts.bob))]
         );
 
         assert_eq!(
-            contract.get_domain_status("david".to_string()),
-            DomainStatus::Available
+            contract.get_domain_status(vec!["david".to_string()]),
+            vec![DomainStatus::Available]
         );
 
         assert_eq!(
-            contract.get_domain_status("".to_string()),
-            DomainStatus::Unavailable
+            contract.get_domain_status(vec!["".to_string()]),
+            vec![DomainStatus::Unavailable]
         );
     }
 
