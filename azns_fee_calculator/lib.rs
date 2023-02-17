@@ -25,7 +25,7 @@ macro_rules! ensure {
     }};
 }
 
-pub use azns_fee_calculator::{AznsFeeCalculator, AznsFeeCalculatorRef};
+pub use self::azns_fee_calculator::{AznsFeeCalculator, AznsFeeCalculatorRef};
 
 #[ink::contract]
 mod azns_fee_calculator {
@@ -78,7 +78,10 @@ mod azns_fee_calculator {
                 Error::InvalidDuration
             );
 
-            let base_price = self.get_base_price(name.len() as Length)?;
+            let base_price = self
+                .price_by_length
+                .get(name.len() as Length)
+                .unwrap_or(self.common_price);
 
             let mut price = 0;
             for year in 1..=duration {
@@ -86,6 +89,16 @@ mod azns_fee_calculator {
             }
 
             Ok(price)
+        }
+
+        #[ink(message)]
+        pub fn get_common_price(&self) -> Balance {
+            self.common_price
+        }
+
+        #[ink(message)]
+        pub fn get_price_by_length(&self, len: Length) -> Option<Balance> {
+            self.price_by_length.get(&len)
         }
 
         #[ink(message)]
@@ -103,13 +116,13 @@ mod azns_fee_calculator {
         }
 
         #[ink(message)]
-        pub fn set_special_price(
+        pub fn set_prices_by_length(
             &mut self,
-            data_points: Vec<(Length, Option<Balance>)>,
+            price_points: Vec<(Length, Option<Balance>)>,
         ) -> Result<()> {
             self.ensure_admin()?;
 
-            data_points.iter().for_each(|(length, price)| {
+            price_points.iter().for_each(|(length, price)| {
                 if let Some(price) = price {
                     self.price_by_length.insert(length, price);
                 } else {
@@ -140,11 +153,6 @@ mod azns_fee_calculator {
             ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
 
             Ok(())
-        }
-
-        fn get_base_price(&self, len: Length) -> Result<Balance> {
-            let price = self.price_by_length.get(&len).unwrap_or(self.common_price);
-            Ok(price)
         }
 
         fn ensure_admin(&self) -> Result<()> {
