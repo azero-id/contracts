@@ -1,42 +1,20 @@
 import { ApiPromise, Keyring } from '@polkadot/api'
-import { CodePromise, ContractPromise } from '@polkadot/api-contract'
+import { ContractPromise } from '@polkadot/api-contract'
+import { EventRecord } from '@polkadot/types/interfaces'
 import { IKeyringPair } from '@polkadot/types/types/interfaces'
 import { bufferToU8a, u8aToHex } from '@polkadot/util'
+import {
+  contractQuery,
+  contractTx,
+  deployContract,
+  getSubstrateChain,
+} from '@scio-labs/use-inkathon'
 import BN from 'bn.js'
-import { enc, SHA256 } from 'crypto-js'
-import { readFileSync } from 'fs'
-import { keccak256 } from 'js-sha3'
+import cryptojs from 'crypto-js'
+import sha3js from 'js-sha3'
 import { MerkleTree } from 'merkletreejs'
-
-const merkleVerifierWASM = readFileSync('./target/ink/merkle_verifier/merkle_verifier.wasm')
-const merkleVerifierABI = JSON.parse(
-  readFileSync('./target/ink/merkle_verifier/metadata.json', 'utf-8'),
-)
-
-const aznsRegisterWASM = readFileSync('./target/ink/azns_registry/azns_registry.wasm')
-const aznsRegistryABI = JSON.parse(
-  readFileSync('./target/ink/azns_registry/metadata.json', 'utf-8'),
-)
-
-let api: ApiPromise
-let keyring: Keyring
-let alice: IKeyringPair
-let gasLimit: any
-
-/**
- * Initialized polkadot.js & development keypair
- */
-const initPolkadotJs = async () => {
-  api = await ApiPromise.create()
-  keyring = new Keyring({ type: 'sr25519' })
-  alice = keyring.createFromUri('//Alice')
-
-  // HACK: Workaround for polkadot.js gasLimit incompatibility with WeightsV2 (https://github.com/polkadot-js/api/issues/5255)
-  gasLimit = api.registry.createType('WeightV2', {
-    refTime: new BN('100000000000'),
-    proofSize: new BN('10000000000'),
-  })
-}
+import { getDeploymentData } from './utils/getDeploymentData'
+import { initPolkadotJs } from './utils/initPolkadotJs'
 
 /**
  * Parses & Hashes the accountId
@@ -44,87 +22,30 @@ const initPolkadotJs = async () => {
  * @returns SHA256(accountId)
  */
 const hashAccountId = (accountId: string) => {
+  const keyring = new Keyring({ type: 'sr25519' })
   const pubkey = u8aToHex(keyring.decodeAddress(accountId))
-  const hexkey = enc.Hex.parse(pubkey.slice(2))
-  return SHA256(hexkey)
+  const hexkey = cryptojs.enc.Hex.parse(pubkey.slice(2))
+  return cryptojs.SHA256(hexkey)
 }
 
 /**
  * Constructs the merkle tree from the whitelisted accounts
  * @returns MerkleTree Object
  */
-const constructMerkleTree = async () => {
+const constructMerkleTree = async (account: IKeyringPair) => {
   const leaves = [
     '5Gju41fG3iX4ZgYP8qYeJgNntSaAXYdh84F6pa1nVxCgVibu',
     '5E56jqWxmhdnuUy6RJsar2Uf89FjUDtCKRTEFcf5SyyvoZJg',
     '5CcBFjse1bTp1eeFUR5sAjxVQm4nuD3vgtJZy6p3iFj4ae63',
-    alice.address, // Test Account
+    account.address,
   ].map((addr) => hashAccountId(addr))
 
-  const tree = new MerkleTree(leaves, keccak256, {
+  const tree = new MerkleTree(leaves, sha3js.keccak256, {
     sortPairs: true,
   })
 
   console.log('Merkle root:', tree.getHexRoot())
   return tree
-}
-
-/**
- * Helper function to deploy a contract
- * @dev Assumes constructor name to be `new`
- * @param signer Account which will deploy the contract
- * @param abi Metadata of the contract
- * @param wasm WASM object of the contract
- * @param params Parameters used to init contract
- * @returns (contractAddress, codeHash) of the deployed contract
- */
-const deployContract = async (signer: IKeyringPair, abi, wasm, params) => {
-  const code = new CodePromise(api, abi, wasm)
-
-  let contractAddress, codeHash
-  await code.tx
-    .new({ gasLimit, storageDepositLimit: null }, ...params)
-    .signAndSend(signer, ({ contract, status }: any) => {
-      if (status?.isInBlock || status?.isFinalized) {
-        contractAddress = contract.address.toString()
-        codeHash = contract.abi.json.source.hash
-        console.log('Contract deployed at %s with code hash (%s)', contractAddress, codeHash)
-      }
-    })
-
-  // HACK: Only way to keep callback/closure alive
-  await new Promise((r) => setTimeout(r, 1000))
-
-  return { contractAddress, codeHash }
-}
-
-/**
- * Deploys `azns_registry` contract
- * @param signer Account which will deploy the contract
- * @param tree MerkleTree object to instantiate contract with
- * @returns Address of deployed contract
- */
-const instantiate = async (
-  signer: IKeyringPair,
-  tree: MerkleTree,
-): Promise<{ contractAddress: string }> => {
-  // Convert MerkleTree root to Uint8Array
-  const root_encoded = bufferToU8a(tree.getRoot())
-
-  // Deploy `merkle_verifier` contract and obtain its codeHash
-  const { codeHash } = await deployContract(signer, merkleVerifierABI, merkleVerifierWASM, [
-    root_encoded,
-  ])
-
-  // Deploy `azns_registry` contract
-  const { contractAddress } = await deployContract(signer, aznsRegistryABI, aznsRegisterWASM, [
-    null,
-    codeHash,
-    root_encoded,
-    null,
-  ])
-
-  return { contractAddress }
 }
 
 /**
@@ -149,78 +70,113 @@ const generateProof = async (tree: MerkleTree, accountId: string) => {
  * @param price The price user is willing to pay
  * @param proof proof of whitelist of given accountId
  */
-const register_with_proof = async (
-  contractAddress: string,
-  signer: IKeyringPair,
+const registerWithProof = async (
+  api: ApiPromise,
+  account: IKeyringPair,
+  contract: ContractPromise,
   domain: string,
   price: BN,
   proof: Buffer[],
 ) => {
-  const contract = new ContractPromise(api, aznsRegistryABI, contractAddress)
-
   // Check the proof is working on-chain
-  const { result, output } = await contract.query.verifyProof(
-    signer.address,
-    {
-      gasLimit,
-    },
-    signer.address,
-    proof,
+  const { result, output } = await contractQuery(
+    api,
+    account.address,
+    contract,
+    'verify_proof',
+    {},
+    [account.address, proof],
   )
 
   if (result.isOk && !!output) {
-    console.log('On-chain verification:', output.toJSON())
-
-    if (output.toPrimitive()['ok']) {
-      console.log('verifyProof works.')
-    } else {
-      console.log('On-chain proof failed.')
-    }
+    const res = output.toPrimitive()['ok']
+    console.log('On-chain verification:', !!res)
   } else {
-    console.error('Error while querying contract. Got result:', result)
+    console.error('Error while querying contract (verify_proof). Got result:', result)
   }
 
   // Register domain with proof
-  await contract.tx
-    .register(
-      {
-        value: price,
-        gasLimit,
-      },
-      domain,
-      proof,
+  const txCallback = ({ status, events }) => {
+    const failedEvent: EventRecord = events.find(
+      ({ event: { method } }: any) => method === 'ExtrinsicFailed',
     )
-    .signAndSend(signer, (result) => {
-      if (result.status.isFinalized) {
-        console.log('finalized')
-      }
-    })
-  // HACK: Only way to keep callback/closure alive
-  await new Promise((r) => setTimeout(r, 1000))
+    if (failedEvent) {
+      console.error(`Domain couldn't be registered:`, failedEvent?.event?.data?.toHuman())
+    } else if (status?.isInBlock) {
+      console.log(`Registered domain '${domain}.azero' successfully`)
+    }
+  }
+  await contractTx(
+    api,
+    account,
+    contract,
+    'register',
+    { value: price },
+    [domain, 1, null, proof, false],
+    txCallback,
+  )
+  await new Promise((r) => setTimeout(r, 2000))
 }
 
-async function test() {
-  await initPolkadotJs()
+async function main() {
+  const accountUri = process.env.ACCOUNT_URI || '//Alice'
+  const chain = getSubstrateChain(process.env.CHAIN || 'development')
+  if (!chain) throw new Error(`Chain '${process.env.CHAIN}' not found`)
+
+  const { api, account, decimals } = await initPolkadotJs(chain.rpcUrls, accountUri)
+  const decimalsMul = new BN(10 ** decimals)
 
   // 1. Construct merkle tree
-  const tree = await constructMerkleTree()
+  const tree = await constructMerkleTree(account)
+  const root_encoded = bufferToU8a(tree.getRoot())
 
-  // 2. Deploy AZNS-Registry contract
-  const { contractAddress } = await instantiate(alice, tree)
+  // 2. Deploy all contracts
+  let { abi, wasm } = await getDeploymentData('azns_name_checker')
+  const allowedLength = [5, 64]
+  const allowedUnicodeRanges = [['a'.charCodeAt(0), 'z'.charCodeAt(0)]]
+  const { hash: aznsNameCheckerHash } = await deployContract(api, account, abi, wasm, 'new', [
+    allowedLength,
+    allowedUnicodeRanges,
+    [],
+  ])
+
+  ;({ abi, wasm } = await getDeploymentData('azns_fee_calculator'))
+  const price = new BN(6).mul(decimalsMul)
+  const { hash: aznsFeeCalculatorHash } = await deployContract(api, account, abi, wasm, 'new', [
+    account.address,
+    3,
+    price,
+    [],
+  ])
+
+  ;({ abi, wasm } = await getDeploymentData('merkle_verifier'))
+  const { hash: aznsMerkleVerifierHash } = await deployContract(api, account, abi, wasm, 'new', [
+    root_encoded,
+  ])
+
+  ;({ abi, wasm } = await getDeploymentData('azns_registry'))
+  const { address: aznsRegistryAddress } = await deployContract(api, account, abi, wasm, 'new', [
+    aznsNameCheckerHash,
+    null, // TODO
+    aznsMerkleVerifierHash,
+    root_encoded,
+    [],
+    1,
+    allowedLength,
+    allowedUnicodeRanges,
+    [],
+  ])
 
   // 3. Generate proof of a whitelisted address
-  const proof = await generateProof(tree, alice.address)
+  const proof = await generateProof(tree, account.address)
 
-  // 4. Register a domain during whitelisted phase
-  const domain = 'AZNS'
-  const price = new BN(1_000_000)
-  await register_with_proof(contractAddress, alice, domain, price, proof)
+  // 4. Verify proof on-chain & Register domain
+  const domain = 'alice'
+  const contract = new ContractPromise(api, abi, aznsRegistryAddress)
+  await registerWithProof(api, account, contract, domain, price, proof)
 }
 
-test()
-  .catch((error) => {
-    console.error(error)
-  })
-  .finally(() => {
-    process.exit(-1)
-  })
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
