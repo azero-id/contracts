@@ -176,7 +176,9 @@ async function main() {
   await registerWithProof(api, account, contract, domain, price, proof)
 }
 
-main().catch((error) => {
-  console.error(error)
-  process.exit(1)
-})
+main()
+  .catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })
+  .finally(() => process.exit(0))
