@@ -34,4 +34,3 @@ std = [
     "azns_merkle_verifier/std",
 ]
 ink-as-dependency = []
-
