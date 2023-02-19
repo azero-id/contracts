@@ -1,7 +1,7 @@
 import { ApiPromise } from '@polkadot/api'
 import { ContractPromise } from '@polkadot/api-contract'
 import { IKeyringPair } from '@polkadot/types/types/interfaces'
-import { bufferToU8a, hexToU8a } from '@polkadot/util'
+import { bufferToU8a, hexToNumber, hexToU8a } from '@polkadot/util'
 import { contractQuery, deployContract, getSubstrateChain } from '@scio-labs/use-inkathon'
 import cryptojs from 'crypto-js'
 import sha3js from 'js-sha3'
@@ -38,9 +38,9 @@ const verifyProofs = async (
     [leaf_encoded, proof],
   )
 
-  if (result.isOk && !!output) {
-    const res = output.toPrimitive()['ok']
-    console.log('On-chain verification:', !!res)
+  if (result.isOk) {
+    const isTrue = hexToNumber(result.asOk.data.toHex()) == 1
+    console.log('On-chain verification:', isTrue)
   } else {
     console.error('Error while querying contract (verify_proof). Got result:', result)
   }

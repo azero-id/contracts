@@ -1,18 +1,13 @@
 import { ApiPromise, Keyring } from '@polkadot/api'
 import { ContractPromise } from '@polkadot/api-contract'
-import { EventRecord } from '@polkadot/types/interfaces'
 import { IKeyringPair } from '@polkadot/types/types/interfaces'
-import { bufferToU8a, u8aToHex } from '@polkadot/util'
-import {
-  contractQuery,
-  contractTx,
-  deployContract,
-  getSubstrateChain,
-} from '@scio-labs/use-inkathon'
+import { bufferToU8a, hexToNumber, u8aToHex } from '@polkadot/util'
+import { contractQuery, deployContract, getSubstrateChain } from '@scio-labs/use-inkathon'
 import BN from 'bn.js'
 import cryptojs from 'crypto-js'
 import sha3js from 'js-sha3'
 import { MerkleTree } from 'merkletreejs'
+import { contractTxPromise } from './utils/contractTxPromise'
 import { getDeploymentData } from './utils/getDeploymentData'
 import { initPolkadotJs } from './utils/initPolkadotJs'
 
@@ -49,7 +44,7 @@ const constructMerkleTree = async (account: IKeyringPair) => {
 }
 
 /**
- *
+ * Generates the proof of inclusion of given accountId in the merkle tree
  * @param tree MerkleTree object on which the proof is constructed
  * @param accountId Item whose inclusion needs to be proved
  * @returns Buffer[] - proof of the inclusion of given accountId in the merkle tree
@@ -63,12 +58,7 @@ const generateProof = async (tree: MerkleTree, accountId: string) => {
 }
 
 /**
- * Registers a domain by a whitelisted account
- * @param contractAddress `azns_registry` deployed address
- * @param signer Account which will sign the tx
- * @param domain Domain name to be registered
- * @param price The price user is willing to pay
- * @param proof proof of whitelist of given accountId
+ * Registers a domain by a whitelisted account.
  */
 const registerWithProof = async (
   api: ApiPromise,
@@ -79,43 +69,31 @@ const registerWithProof = async (
   proof: Buffer[],
 ) => {
   // Check the proof is working on-chain
-  const { result, output } = await contractQuery(
-    api,
+  const { result } = await contractQuery(api, account.address, contract, 'verify_proof', {}, [
     account.address,
-    contract,
-    'verify_proof',
-    {},
-    [account.address, proof],
-  )
+    proof,
+  ])
 
-  if (result.isOk && !!output) {
-    const res = output.toPrimitive()['ok']
-    console.log('On-chain verification:', !!res)
+  if (result.isOk) {
+    const isTrue = hexToNumber(result.asOk.data.toHex()) == 1
+    console.log('On-chain verification:', isTrue)
   } else {
     console.error('Error while querying contract (verify_proof). Got result:', result)
   }
 
   // Register domain with proof
-  const txCallback = ({ status, events }) => {
-    const failedEvent: EventRecord = events.find(
-      ({ event: { method } }: any) => method === 'ExtrinsicFailed',
-    )
-    if (failedEvent) {
-      console.error(`Domain couldn't be registered:`, failedEvent?.event?.data?.toHuman())
-    } else if (status?.isInBlock) {
-      console.log(`Registered domain '${domain}.azero' successfully`)
-    }
+  try {
+    await contractTxPromise(api, account, contract, 'register', { value: price }, [
+      domain,
+      1,
+      null,
+      proof,
+      false,
+    ])
+    console.log(`Registered domain '${domain}.azero' successfully`)
+  } catch (e) {
+    console.error(`Error while registering domain:`, e?.failedEvent?.event?.data?.toHuman())
   }
-  await contractTx(
-    api,
-    account,
-    contract,
-    'register',
-    { value: price },
-    [domain, 1, null, proof, false],
-    txCallback,
-  )
-  await new Promise((r) => setTimeout(r, 2000))
 }
 
 async function main() {
@@ -141,13 +119,16 @@ async function main() {
   ])
 
   ;({ abi, wasm } = await getDeploymentData('azns_fee_calculator'))
-  const price = new BN(6).mul(decimalsMul)
-  const { hash: aznsFeeCalculatorHash } = await deployContract(api, account, abi, wasm, 'new', [
-    account.address,
-    3,
-    price,
-    [],
-  ])
+  const price = new BN(5).mul(decimalsMul)
+  const allowedYears = 3
+  const { address: aznsFeeCalculatorAddress, hash: aznsFeeCalculatorHash } = await deployContract(
+    api,
+    account,
+    abi,
+    wasm,
+    'new',
+    [account.address, allowedYears, price, []],
+  )
 
   ;({ abi, wasm } = await getDeploymentData('merkle_verifier'))
   const { hash: aznsMerkleVerifierHash } = await deployContract(api, account, abi, wasm, 'new', [
@@ -157,7 +138,7 @@ async function main() {
   ;({ abi, wasm } = await getDeploymentData('azns_registry'))
   const { address: aznsRegistryAddress } = await deployContract(api, account, abi, wasm, 'new', [
     aznsNameCheckerHash,
-    null, // TODO
+    null,
     aznsMerkleVerifierHash,
     root_encoded,
     [],
