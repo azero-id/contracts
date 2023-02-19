@@ -6,10 +6,10 @@ import path from 'path'
  */
 export const getDeploymentData = async (contractName: string, basePath = './deployments') => {
   const contractPath = path.join(path.resolve(), basePath, contractName)
-  let wasm, abi
+  let abi, wasm
   try {
-    wasm = await readFile(path.join(contractPath, `${contractName}.wasm`))
     abi = JSON.parse(await readFile(path.join(contractPath, 'metadata.json'), 'utf-8'))
+    wasm = await readFile(path.join(contractPath, `${contractName}.wasm`))
   } catch (e) {
     console.error(e)
     throw new Error("Couldn't find contract deployment files. Did you build it via `pnpm build`?")
@@ -17,7 +17,7 @@ export const getDeploymentData = async (contractName: string, basePath = './depl
 
   return {
     contractPath,
-    wasm,
     abi,
+    wasm,
   }
 }

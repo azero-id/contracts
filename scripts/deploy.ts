@@ -11,12 +11,11 @@ const main = async () => {
   const chain = getSubstrateChain(process.env.CHAIN || 'development')
   if (!chain) throw new Error(`Chain '${process.env.CHAIN}' not found`)
 
-  const { api, account } = await initPolkadotJs(chain.rpcUrls, accountUri)
-  const decimals = api.registry.chainDecimals?.[0] || 12
+  const { api, account, decimals } = await initPolkadotJs(chain.rpcUrls, accountUri)
   const decimalsMul = new BN(10 ** decimals)
 
   // Deploy `azns_name_checker` contract
-  let { wasm, abi } = await getDeploymentData('azns_name_checker')
+  let { abi, wasm } = await getDeploymentData('azns_name_checker')
   const allowedLength = [5, 64]
   const allowedUnicodeRanges = [
     ['a'.charCodeAt(0), 'z'.charCodeAt(0)],
@@ -38,7 +37,7 @@ const main = async () => {
   )
 
   // Deploy `azns_fee_calculator` contract
-  ;({ wasm, abi } = await getDeploymentData('azns_fee_calculator'))
+  ;({ abi, wasm } = await getDeploymentData('azns_fee_calculator'))
   const veryHighFee = new BN(1_000_000).mul(decimalsMul)
   const { address: aznsFeeCalculatorAddress, hash: aznsFeeCalculatorHash } = await deployContract(
     api,
@@ -61,7 +60,7 @@ const main = async () => {
   )
 
   // Deploy `merkle_verifier` contract
-  ;({ wasm, abi } = await getDeploymentData('merkle_verifier'))
+  ;({ abi, wasm } = await getDeploymentData('merkle_verifier'))
   const { address: aznsMerkleVerifierAddress, hash: aznsMerkleVerifierHash } = await deployContract(
     api,
     account,
@@ -72,7 +71,7 @@ const main = async () => {
   )
 
   // Deploy `azns_registry` contract
-  ;({ wasm, abi } = await getDeploymentData('azns_registry'))
+  ;({ abi, wasm } = await getDeploymentData('azns_registry'))
   const { address: aznsRegistryAddress, hash: aznsRegistryHash } = await deployContract(
     api,
     account,
@@ -81,7 +80,7 @@ const main = async () => {
     'new',
     [
       aznsNameCheckerHash,
-      null,
+      null, // TODO
       aznsMerkleVerifierHash,
       [],
       [['dennis', null]],
