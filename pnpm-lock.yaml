@@ -1,11 +1,11 @@
 lockfileVersion: 5.4
 
 specifiers:
-  '@polkadot/api': ^9.14.1
-  '@polkadot/api-contract': ^9.14.1
-  '@polkadot/types': ^9.14.1
-  '@polkadot/util': ^10.4.1
-  '@scio-labs/use-inkathon': file:../../scio-labs/use-inkathon/scio-labs-use-inkathon-0.0.1-alpha.19.tgz
+  '@polkadot/api': ^9.14.2
+  '@polkadot/api-contract': ^9.14.2
+  '@polkadot/types': ^9.14.2
+  '@polkadot/util': ^10.4.2
+  '@scio-labs/use-inkathon': 0.0.1-alpha.20
   '@types/node': ^18.14.0
   '@typescript-eslint/eslint-plugin': ^5.52.0
   '@typescript-eslint/parser': ^5.52.0
@@ -25,7 +25,7 @@ devDependencies:
   '@polkadot/api-contract': 9.14.2
   '@polkadot/types': 9.14.2
   '@polkadot/util': 10.4.2
-  '@scio-labs/use-inkathon': file:../../scio-labs/use-inkathon/scio-labs-use-inkathon-0.0.1-alpha.19.tgz_bmgtktbe4ubxpef7dx23pckgba
+  '@scio-labs/use-inkathon': 0.0.1-alpha.20_bmgtktbe4ubxpef7dx23pckgba
   '@types/node': 18.14.0
   '@typescript-eslint/eslint-plugin': 5.52.0_6cfvjsbua5ptj65675bqcn6oza
   '@typescript-eslint/parser': 5.52.0_7kw3g6rralp5ps6mg3uyzz6azm
@@ -575,6 +575,28 @@ packages:
       websocket: 1.0.34
     transitivePeerDependencies:
       - supports-color
+    dev: true
+
+  /@scio-labs/use-inkathon/0.0.1-alpha.20_bmgtktbe4ubxpef7dx23pckgba:
+    resolution: {integrity: sha512-SWmEE+5buQ5YmWx4ahYOJ61LjHMxTK1QmCd7VVr+AwomySqKRqUSdaPgsMiJHu7/n9OzVfoLVhXiyr78xVsvPg==}
+    peerDependencies:
+      '@polkadot/api': 9.13.6
+      '@polkadot/api-contract': 9.13.6
+      '@polkadot/extension-dapp': 0.44.8
+      '@polkadot/extension-inject': 0.44.8
+      '@polkadot/types': 9.13.6
+      '@polkadot/util': 10.3.1
+      react: 18.2.0
+      react-dom: 18.2.0
+    dependencies:
+      '@polkadot/api': 9.14.2
+      '@polkadot/api-contract': 9.14.2
+      '@polkadot/extension-dapp': 0.44.8_coiyrdw3fz3iwjh25omodrt45q
+      '@polkadot/extension-inject': 0.44.8_@polkadot+api@9.14.2
+      '@polkadot/types': 9.14.2
+      '@polkadot/util': 10.4.2
+      react: 18.2.0
+      react-dom: 18.2.0_react@18.2.0
     dev: true
 
   /@scure/base/1.1.1:
@@ -2276,29 +2298,4 @@ packages:
   /yocto-queue/0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
-    dev: true
-
-  file:../../scio-labs/use-inkathon/scio-labs-use-inkathon-0.0.1-alpha.19.tgz_bmgtktbe4ubxpef7dx23pckgba:
-    resolution: {integrity: sha512-wTM4wlf/81krFHG0UkBG3UtjlgB2+o1SeMIXG7ygNwtZbvcJywWVC1q+PEvmk4oPN9hHwiApvZ5muUMsJKhtxQ==, tarball: file:../../scio-labs/use-inkathon/scio-labs-use-inkathon-0.0.1-alpha.19.tgz}
-    id: file:../../scio-labs/use-inkathon/scio-labs-use-inkathon-0.0.1-alpha.19.tgz
-    name: '@scio-labs/use-inkathon'
-    version: 0.0.1-alpha.19
-    peerDependencies:
-      '@polkadot/api': 9.13.6
-      '@polkadot/api-contract': 9.13.6
-      '@polkadot/extension-dapp': 0.44.8
-      '@polkadot/extension-inject': 0.44.8
-      '@polkadot/types': 9.13.6
-      '@polkadot/util': 10.3.1
-      react: 18.2.0
-      react-dom: 18.2.0
-    dependencies:
-      '@polkadot/api': 9.14.2
-      '@polkadot/api-contract': 9.14.2
-      '@polkadot/extension-dapp': 0.44.8_coiyrdw3fz3iwjh25omodrt45q
-      '@polkadot/extension-inject': 0.44.8_@polkadot+api@9.14.2
-      '@polkadot/types': 9.14.2
-      '@polkadot/util': 10.4.2
-      react: 18.2.0
-      react-dom: 18.2.0_react@18.2.0
     dev: true
