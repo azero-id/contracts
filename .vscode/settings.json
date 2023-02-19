@@ -1,0 +1,21 @@
+{
+  "search.useIgnoreFiles": true,
+  "search.useGlobalIgnoreFiles": true,
+  "search.useParentIgnoreFiles": true,
+  "editor.formatOnSave": true,
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  },
+  "evenBetterToml.formatter.indentString": "    ",
+  "evenBetterToml.formatter.columnWidth": 120,
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": true,
+      "source.fixAll.eslint": true
+    },
+  },
+  "files.associations": {
+    ".env.*": "dotenv"
+  },
+}
