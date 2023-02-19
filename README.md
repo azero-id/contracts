@@ -3,31 +3,54 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Built with ink!](https://raw.githubusercontent.com/paritytech/ink/master/.images/badge.svg)](https://github.com/paritytech/ink)
 
-This repository contains all smart contracts of the [azero.domains](https://azero.domains) domain name service.
+This repository contains all smart contracts of the [azero.domains](https://azero.domains) name service.
 
 ## Documentation
 
-Wip is accessible under [docs.azero.domains](https://docs.azero.domains) and hosted under: https://github.com/azero-domains/docs.
+Work-in-progress is accessible under [docs.azero.domains](https://docs.azero.domains).
 
 ## Development
 
 ```bash
-# Prerequisites
-# Install Rust & Cargo: https://doc.rust-lang.org/cargo/getting-started/installation.html
+# Prerequisites (Rust, Cargo, ink! CLI, Substrate Contracts Node)
+# See: https://github.com/scio-labs/inkathon#contracts
 
 # Build all contracts
 ./build-all.sh
 # Build single contract
-cargo +nightly contract build --manifest-path azns_registry/Cargo.toml
+cargo contract build --release --manifest-path azns_registry/Cargo.toml
 
 # Run all tests
 ./test-all.sh
 # Run tests for single contract
-cargo +nightly contract test --manifest-path azns_registry/Cargo.toml
+cargo test --manifest-path azns_registry/Cargo.toml
 ```
 
-You can upload the contracts using [Contracts UI](https://contracts-ui.substrate.io/).
-If you want to test it locally, [`substrate-contracts-node`](https://ink.substrate.io/getting-started/setup/#installing-the-substrate-smart-contracts-node)
-is an easy way to get a local smart contract chain running.
+## Scripts
 
+All TypeScript files in the `./scripts` can be run with the commands below. Most of the scripts assume, that all contracts are built via `./build-all.sh`.
 
+```bash
+# Prerequisites (Node, pnpm)
+
+# Install dependencies (once)
+pnpm i
+
+# Start local development chain
+pnpm node
+
+# Run script
+pnpm ts-node scripts/merkle_verifier.ts
+
+# Run script on other chain
+# NOTE: Make sure to create a `.{chain}.env` environment file (gitignored)
+#       with the `ACCOUNT_URI` you want to use.
+#       Also, chain must be a network-id from here: https://github.com/scio-labs/use-inkathon/blob/main/src/chains.ts.
+CHAIN=alephzero-testnet pnpm ts-node scripts/merkle_verifier.ts
+```
+
+## Deploy
+
+A complete deployment of all contracts is handled by `./scripts/deploy.ts` and can be run via `pnpm deploy`.
+
+You can also upload & instantiate contracts manually using [Contracts UI](https://contracts-ui.substrate.io/).
