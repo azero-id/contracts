@@ -177,5 +177,140 @@ mod azns_fee_calculator {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use ink::env::test::*;
+        use ink::env::DefaultEnvironment;
+
+        fn default_accounts() -> DefaultAccounts<DefaultEnvironment> {
+            ink::env::test::default_accounts::<DefaultEnvironment>()
+        }
+
+        fn get_test_fee_calculator() -> AznsFeeCalculator {
+            let contract_addr: AccountId = AccountId::from([0xFF as u8; 32]);
+            set_callee::<DefaultEnvironment>(contract_addr);
+            AznsFeeCalculator::new(
+                default_accounts().alice,
+                3,
+                6_u128 * 10_u128.pow(12),
+                vec![
+                    (3, 640_u128 * 10_u128.pow(12)),
+                    (4, 160_u128 * 10_u128.pow(12)),
+                ],
+            )
+        }
+
+        #[ink::test]
+        fn new_works() {
+            let contract = get_test_fee_calculator();
+
+            assert_eq!(contract.get_common_price(), 6_u128 * 10_u128.pow(12));
+            assert_eq!(
+                contract.get_price_by_length(3),
+                Some(640_u128 * 10_u128.pow(12))
+            );
+            assert_eq!(
+                contract.get_price_by_length(4),
+                Some(160_u128 * 10_u128.pow(12))
+            );
+        }
+
+        #[ink::test]
+        fn get_name_price_works() {
+            let contract = get_test_fee_calculator();
+
+            assert_eq!(
+                contract.get_name_price("".to_string(), 1),
+                Err(Error::ZeroLength)
+            );
+
+            let name = "alice".to_string();
+
+            // Duration: 0
+            assert_eq!(
+                contract.get_name_price(name.clone(), 0),
+                Err(Error::InvalidDuration)
+            );
+
+            // Duration: 1
+            assert_eq!(
+                contract.get_name_price(name.clone(), 1),
+                Ok(6_u128 * 10_u128.pow(12))
+            );
+
+            // Duration: 2
+            assert_eq!(
+                contract.get_name_price(name.clone(), 2),
+                Ok(18_u128 * 10_u128.pow(12))
+            );
+
+            // Duration: 3
+            assert_eq!(
+                contract.get_name_price(name.clone(), 3),
+                Ok(36_u128 * 10_u128.pow(12))
+            );
+
+            // Duration: 4
+            assert_eq!(
+                contract.get_name_price(name.clone(), 4),
+                Err(Error::InvalidDuration)
+            );
+        }
+
+        #[ink::test]
+        fn set_max_registration_duration_works() {
+            let mut contract = get_test_fee_calculator();
+
+            assert_eq!(contract.get_max_registration_duration(), 3);
+            contract.set_max_registration_duration(5).unwrap();
+            assert_eq!(contract.get_max_registration_duration(), 5);
+        }
+
+        #[ink::test]
+        fn set_common_price_works() {
+            let mut contract = get_test_fee_calculator();
+
+            assert_eq!(contract.get_common_price(), 6_u128 * 10_u128.pow(12));
+            contract.set_common_price(100).unwrap();
+            assert_eq!(contract.get_common_price(), 100);
+        }
+
+        #[ink::test]
+        fn set_price_by_length_works() {
+            let mut contract = get_test_fee_calculator();
+
+            contract
+                .set_prices_by_length(vec![(2, Some(100)), (3, None)])
+                .unwrap();
+            assert_eq!(contract.get_price_by_length(2), Some(100));
+            assert_eq!(contract.get_price_by_length(3), None);
+        }
+
+        #[ink::test]
+        fn set_admin_works() {
+            let mut contract = get_test_fee_calculator();
+
+            assert_eq!(contract.get_admin(), default_accounts().alice);
+            contract.set_admin(default_accounts().bob).unwrap();
+            assert_eq!(contract.get_admin(), default_accounts().bob);
+        }
+
+        #[ink::test]
+        fn admin_op_checked() {
+            let mut contract = get_test_fee_calculator();
+            set_caller::<DefaultEnvironment>(default_accounts().bob);
+
+            assert_eq!(
+                contract.set_max_registration_duration(5),
+                Err(Error::NotAdmin)
+            );
+            assert_eq!(contract.set_common_price(100), Err(Error::NotAdmin));
+            assert_eq!(
+                contract.set_prices_by_length(vec![(3, None)]),
+                Err(Error::NotAdmin)
+            );
+            assert_eq!(
+                contract.set_admin(default_accounts().bob),
+                Err(Error::NotAdmin)
+            );
+        }
     }
 }
