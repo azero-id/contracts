@@ -5,6 +5,7 @@ mod address_dict;
 #[ink::contract]
 mod azns_registry {
     use crate::address_dict::AddressDict;
+    use ink::env::call::FromAccountId;
     use ink::env::hash::CryptoHash;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
@@ -159,7 +160,7 @@ mod azns_registry {
         #[ink(constructor)]
         pub fn new(
             name_checker_hash: Option<Hash>,
-            fee_calculator: Option<azns_fee_calculator::AznsFeeCalculatorRef>,
+            fee_calculator_addr: Option<AccountId>,
             merkle_verifier_hash: Option<Hash>,
             merkle_root: [u8; 32],
             reserved_domains: Option<Vec<(String, Option<AccountId>)>>,
@@ -194,6 +195,9 @@ mod azns_registry {
                     .salt_bytes(salt)
                     .instantiate()
             });
+
+            let fee_calculator = fee_calculator_addr
+                .map(|addr| azns_fee_calculator::AznsFeeCalculatorRef::from_account_id(addr));
 
             let mut contract = Self {
                 admin: caller,
