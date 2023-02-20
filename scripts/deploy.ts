@@ -29,11 +29,7 @@ const main = async () => {
     abi,
     wasm,
     'new',
-    [
-      allowedLength, // TODO "Contract trapped" for zero length in `is_name_allowed`
-      allowedUnicodeRanges,
-      disallowedUnicodeRangesForEdges,
-    ],
+    [allowedLength, allowedUnicodeRanges, disallowedUnicodeRangesForEdges],
   )
 
   // Deploy `azns_fee_calculator` contract
@@ -50,7 +46,6 @@ const main = async () => {
       3,
       6 * 10 ** decimals,
       [
-        // TODO Add error for zero length in `get_name_price`
         [1, veryHighFee],
         [2, veryHighFee],
         [3, veryHighFee],
