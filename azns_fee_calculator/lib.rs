@@ -10,6 +10,8 @@ pub enum Error {
     NotAdmin,
     /// Given registration duration is not allowed.
     InvalidDuration,
+    /// Zero length name not allowed
+    ZeroLength,
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -77,6 +79,7 @@ mod azns_fee_calculator {
                 1 <= duration && duration <= self.max_registration_duration,
                 Error::InvalidDuration
             );
+            ensure!(name.len() != 0, Error::ZeroLength);
 
             let base_price = self
                 .price_by_length
