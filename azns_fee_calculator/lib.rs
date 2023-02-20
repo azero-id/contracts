@@ -74,6 +74,11 @@ mod azns_fee_calculator {
         }
 
         #[ink(message)]
+        pub fn get_max_registration_duration(&self) -> u8 {
+            self.max_registration_duration
+        }
+
+        #[ink(message)]
         pub fn get_name_price(&self, name: String, duration: u8) -> Result<Balance> {
             ensure!(
                 1 <= duration && duration <= self.max_registration_duration,
@@ -102,6 +107,11 @@ mod azns_fee_calculator {
         #[ink(message)]
         pub fn get_price_by_length(&self, len: Length) -> Option<Balance> {
             self.price_by_length.get(&len)
+        }
+
+        #[ink(message)]
+        pub fn get_admin(&self) -> AccountId {
+            self.admin
         }
 
         #[ink(message)]
