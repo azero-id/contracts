@@ -5,7 +5,7 @@ specifiers:
   '@polkadot/api-contract': ^9.14.2
   '@polkadot/types': ^9.14.2
   '@polkadot/util': ^10.4.2
-  '@scio-labs/use-inkathon': 0.0.1-alpha.20
+  '@scio-labs/use-inkathon': 0.0.1-alpha.21
   '@types/node': ^18.14.0
   '@typescript-eslint/eslint-plugin': ^5.52.0
   '@typescript-eslint/parser': ^5.52.0
@@ -25,7 +25,7 @@ devDependencies:
   '@polkadot/api-contract': 9.14.2
   '@polkadot/types': 9.14.2
   '@polkadot/util': 10.4.2
-  '@scio-labs/use-inkathon': 0.0.1-alpha.20_bmgtktbe4ubxpef7dx23pckgba
+  '@scio-labs/use-inkathon': 0.0.1-alpha.21_bmgtktbe4ubxpef7dx23pckgba
   '@types/node': 18.14.0
   '@typescript-eslint/eslint-plugin': 5.52.0_6cfvjsbua5ptj65675bqcn6oza
   '@typescript-eslint/parser': 5.52.0_7kw3g6rralp5ps6mg3uyzz6azm
@@ -577,8 +577,8 @@ packages:
       - supports-color
     dev: true
 
-  /@scio-labs/use-inkathon/0.0.1-alpha.20_bmgtktbe4ubxpef7dx23pckgba:
-    resolution: {integrity: sha512-SWmEE+5buQ5YmWx4ahYOJ61LjHMxTK1QmCd7VVr+AwomySqKRqUSdaPgsMiJHu7/n9OzVfoLVhXiyr78xVsvPg==}
+  /@scio-labs/use-inkathon/0.0.1-alpha.21_bmgtktbe4ubxpef7dx23pckgba:
+    resolution: {integrity: sha512-QD8+wgcchRVekGgxAU9yZOQYg7DG+Js3n4w8z3L+MLlVWNeGpw4xHn4ci8xdbRiOAVQiXqsl9GZeLI4560JrQg==}
     peerDependencies:
       '@polkadot/api': 9.13.6
       '@polkadot/api-contract': 9.13.6
@@ -586,8 +586,8 @@ packages:
       '@polkadot/extension-inject': 0.44.8
       '@polkadot/types': 9.13.6
       '@polkadot/util': 10.3.1
-      react: 18.2.0
-      react-dom: 18.2.0
+      react: 18.2.0 || ^18.0.0
+      react-dom: 18.2.0 || ^18.0.0
     dependencies:
       '@polkadot/api': 9.14.2
       '@polkadot/api-contract': 9.14.2
