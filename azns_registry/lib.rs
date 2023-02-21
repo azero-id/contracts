@@ -16,7 +16,10 @@ mod azns_registry {
     use azns_name_checker::UnicodeRange;
     use merkle_verifier::MerkleVerifierRef;
 
-    const YEAR: u64 = 365 * 24 * 60 * 60 * 1000; // Year in milliseconds
+    const YEAR: u64 = match cfg!(test) {
+        true => 60,                         // For testing purpose
+        false => 365 * 24 * 60 * 60 * 1000, // Year in milliseconds
+    };
 
     pub type Result<T> = core::result::Result<T, Error>;
 
@@ -617,8 +620,8 @@ mod azns_registry {
             };
 
             /* Check that the primary domain actually resolves to the claimed address */
-            let resolved_address = self.get_address(primary_domain.clone())?;
-            if resolved_address != address {
+            let resolved_address = self.get_address(primary_domain.clone());
+            if resolved_address != Ok(address) {
                 /* Resolved address is no longer valid */
                 return Err(Error::NoResolvedAddress);
             }
@@ -1884,6 +1887,132 @@ mod tests {
 
         // No bonus received by alice
         assert_eq!(alice_balance, 0);
+    }
+
+    #[ink::test]
+    fn name_expiry_works() {
+        let mut contract = get_test_name_service();
+
+        let name1 = "one-year".to_string();
+        let name2 = "two-year".to_string();
+
+        // Register name1 for one year
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
+
+        // Register name2 for two years
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name2.clone(), 2, None, None, false)
+            .unwrap();
+
+        // (for cfg(test)) block_time = 6, year = 60
+        for _ in 0..10 {
+            advance_block::<DefaultEnvironment>();
+        }
+
+        assert_eq!(
+            contract.get_domain_status(vec![name1.clone(), name2.clone()]),
+            vec![
+                DomainStatus::Available,
+                DomainStatus::Registered(default_accounts().alice)
+            ]
+        );
+
+        assert_eq!(
+            contract.get_primary_domain(default_accounts().alice),
+            Err(Error::NoResolvedAddress)
+        );
+
+        assert_eq!(
+            contract.get_metadata(name1.clone()),
+            Err(Error::NoRecordsForAddress)
+        );
+
+        // Reverse mapping implicitly excludes expired names
+        assert_eq!(
+            contract.get_names_of_address(default_accounts().alice),
+            vec![name2.clone()]
+        );
+    }
+
+    #[ink::test]
+    fn clear_expired_names_works() {
+        let mut contract = get_test_name_service();
+
+        let name1 = "one-year".to_string();
+        let name2 = "two-year".to_string();
+
+        // Register name1 for one year
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
+
+        // Register name2 for two years
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name2.clone(), 2, None, None, false)
+            .unwrap();
+
+        // (for cfg(test)) block_time = 6, year = 60
+        for _ in 0..10 {
+            advance_block::<DefaultEnvironment>();
+        }
+
+        // Only the expired names are cleared
+        assert_eq!(
+            contract.clear_expired_names(vec![name1.clone(), name2.clone()]),
+            Ok(1)
+        );
+
+        assert_eq!(
+            contract.get_domain_status(vec![name1.clone(), name2.clone()]),
+            vec![
+                DomainStatus::Available,
+                DomainStatus::Registered(default_accounts().alice)
+            ]
+        );
+    }
+
+    #[ink::test]
+    fn register_expired_names_works() {
+        let mut contract = get_test_name_service();
+
+        let name1 = "one-year".to_string();
+        let name2 = "two-year".to_string();
+
+        // Register name1 for one year
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
+
+        // Register name2 for two years
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name2.clone(), 2, None, None, false)
+            .unwrap();
+
+        // Registering an active name causes error
+        set_next_caller(default_accounts().bob);
+        assert_eq!(
+            contract.register(name1.clone(), 1, None, None, false),
+            Err(Error::NameAlreadyExists)
+        );
+
+        // (for cfg(test)) block_time = 6, year = 60
+        for _ in 0..10 {
+            advance_block::<DefaultEnvironment>();
+        }
+
+        // Registering an expired name works
+        assert_eq!(
+            contract.register(name1.clone(), 1, None, None, false),
+            Ok(())
+        );
     }
 
     // TODO Need cross-contract test support
