@@ -918,7 +918,7 @@ mod azns_registry {
 
         fn has_name_expired(&self, name: &str) -> Result<bool> {
             match self.name_to_expiry.get(name) {
-                Some(expiry) => Ok(expiry > self.env().block_timestamp()),
+                Some(expiry) => Ok(expiry <= self.env().block_timestamp()),
                 None => Err(Error::NameDoesntExist),
             }
         }
