@@ -75,7 +75,7 @@ const main = async () => {
     'new',
     [
       aznsNameCheckerHash,
-      null, // TODO
+      aznsFeeCalculatorAddress,
       aznsMerkleVerifierHash,
       [],
       [['dennis', null]],

@@ -83,15 +83,16 @@ const registerWithProof = async (
 
   // Register domain with proof
   try {
-    await contractTxPromise(api, account, contract, 'register', { value: price }, [
+    await contractTxPromise(api, account, contract, 'register', { value: price.mul(new BN(3)) }, [
       domain,
-      1,
+      2,
       null,
       proof,
       false,
     ])
     console.log(`Registered domain '${domain}.azero' successfully`)
   } catch (e) {
+    console.log(e)
     console.error(`Error while registering domain:`, e?.failedEvent?.event?.data?.toHuman())
   }
 }
@@ -121,7 +122,7 @@ async function main() {
   ;({ abi, wasm } = await getDeploymentData('azns_fee_calculator'))
   const price = new BN(5).mul(decimalsMul)
   const allowedYears = 3
-  const { address: aznsFeeCalculatorAddress, hash: aznsFeeCalculatorHash } = await deployContract(
+  const { address: aznsFeeCalculatorAddress } = await deployContract(
     api,
     account,
     abi,
@@ -138,7 +139,7 @@ async function main() {
   ;({ abi, wasm } = await getDeploymentData('azns_registry'))
   const { address: aznsRegistryAddress } = await deployContract(api, account, abi, wasm, 'new', [
     aznsNameCheckerHash,
-    null,
+    aznsFeeCalculatorAddress,
     aznsMerkleVerifierHash,
     root_encoded,
     [],
