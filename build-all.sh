@@ -1,6 +1,6 @@
 #!/usr/bin/env bash -eu
 
-contracts=( "azns_name_checker" "azns_fee_calculator" "merkle_verifier" "azns_registry" )
+contracts=( "azns_name_checker" "azns_fee_calculator" "azns_merkle_verifier" "azns_registry" )
 
 for i in "${contracts[@]}"
 do
