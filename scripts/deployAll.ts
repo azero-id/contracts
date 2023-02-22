@@ -1,7 +1,10 @@
 import { getSubstrateChain } from '@scio-labs/use-inkathon'
 import * as dotenv from 'dotenv'
 import { deployFeeCalculator } from './deploy/deployFeeCalculator'
-import { deployMerkleVerifier } from './deploy/deployMerkleVerifier'
+import {
+  deployMerkleVerifier,
+  deployMerkleVerifierWithWhitelist,
+} from './deploy/deployMerkleVerifier'
 import { deployNameChecker } from './deploy/deployNameChecker'
 import { deployRegistry } from './deploy/deployRegistry'
 import { initPolkadotJs } from './utils/initPolkadotJs'
@@ -22,7 +25,9 @@ const main = async () => {
   // Deploy all contracts
   const { address: aznsNameCheckerAddress } = await deployNameChecker(initParams)
   const { address: aznsFeeCalculatorAddress } = await deployFeeCalculator(initParams)
-  const { address: aznsMerkleVerifierAddress } = await deployMerkleVerifier(initParams)
+  const { address: aznsMerkleVerifierAddress } = process.env.WHITELIST
+    ? await deployMerkleVerifierWithWhitelist(initParams)
+    : await deployMerkleVerifier(initParams)
   const { address: aznsRegistryAddress } = await deployRegistry(initParams, {
     aznsNameCheckerAddress,
     aznsFeeCalculatorAddress,

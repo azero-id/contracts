@@ -26,7 +26,7 @@ const main = async () => {
   const notIncludedAddress = keyring.addFromUri('//Bob').address
 
   // Construct Merkle Tree
-  const { tree, encodedRoot } = await constructMerkleTree([includedAddress])
+  const { tree, encodedRoot } = constructMerkleTree([includedAddress])
 
   // Generate inclusion leafs and inclusion proofs
   const {

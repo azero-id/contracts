@@ -8,7 +8,7 @@ import { hashAccountId } from '../utils/hashAccountId'
  * @param addresses Array of ss58 addresses
  * @returns MerkleTree object and encoded merkle root
  */
-export const constructMerkleTree = async (addresses: string[]) => {
+export const constructMerkleTree = (addresses: string[]) => {
   console.log(`Constructing merkle tree with ${addresses.length} leaves (addresses)…`)
 
   // Convert addresses to hashes
