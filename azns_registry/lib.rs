@@ -12,9 +12,9 @@ mod azns_registry {
     use ink::storage::traits::ManualKey;
     use ink::storage::{Lazy, Mapping};
 
+    use azns_fee_calculator::AznsFeeCalculatorRef;
     use azns_merkle_verifier::MerkleVerifierRef;
     use azns_name_checker::NameCheckerRef;
-    use azns_name_checker::UnicodeRange;
 
     const YEAR: u64 = match cfg!(test) {
         true => 60,                         // For testing purpose
@@ -90,7 +90,7 @@ mod azns_registry {
         /// Contract which verifies the validity of a name
         name_checker: Option<NameCheckerRef>,
         /// Contract which calculates the name price
-        fee_calculator: Option<azns_fee_calculator::AznsFeeCalculatorRef>,
+        fee_calculator: Option<AznsFeeCalculatorRef>,
         /// Names which can be claimed only by the specified user
         reserved_names: Mapping<String, Option<AccountId>, ManualKey<100>>,
 
@@ -166,45 +166,23 @@ mod azns_registry {
         /// Creates a new AZNS contract.
         #[ink(constructor)]
         pub fn new(
-            name_checker_hash: Option<Hash>,
+            name_checker_addr: Option<AccountId>,
             fee_calculator_addr: Option<AccountId>,
-            merkle_verifier_hash: Option<Hash>,
-            merkle_root: [u8; 32],
+            merkle_verifier_addr: Option<AccountId>,
             reserved_domains: Option<Vec<(String, Option<AccountId>)>>,
-            version: Option<u32>,
-            allowed_length: (u8, u8),
-            allowed_unicode_ranges: Vec<UnicodeRange>,
-            disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
         ) -> Self {
             let caller = Self::env().caller();
 
             // Initializing NameChecker
-            let total_balance = Self::env().balance();
-            let salt = version.unwrap_or(1u32).to_le_bytes();
-
-            let name_checker = name_checker_hash.map(|hash| {
-                NameCheckerRef::new(
-                    allowed_length,
-                    allowed_unicode_ranges,
-                    disallowed_unicode_ranges_for_edges,
-                )
-                .endowment(total_balance / 4) // TODO why /4?
-                .code_hash(hash)
-                .salt_bytes(salt)
-                .instantiate()
-            });
+            let name_checker = name_checker_addr.map(|addr| NameCheckerRef::from_account_id(addr));
 
             // Initializing MerkleVerifier
-            let whitelisted_address_verifier = merkle_verifier_hash.map(|ch| {
-                MerkleVerifierRef::new(merkle_root)
-                    .endowment(total_balance / 4) // TODO why /4?
-                    .code_hash(ch)
-                    .salt_bytes(salt)
-                    .instantiate()
-            });
+            let whitelisted_address_verifier =
+                merkle_verifier_addr.map(|addr| MerkleVerifierRef::from_account_id(addr));
 
-            let fee_calculator = fee_calculator_addr
-                .map(|addr| azns_fee_calculator::AznsFeeCalculatorRef::from_account_id(addr));
+            // Initializing FeeCalculator
+            let fee_calculator =
+                fee_calculator_addr.map(|addr| AznsFeeCalculatorRef::from_account_id(addr));
 
             let mut contract = Self {
                 admin: caller,
@@ -931,7 +909,6 @@ mod azns_registry {
 #[cfg(test)]
 mod tests {
     use super::azns_registry::*;
-    use azns_name_checker::UnicodeRange;
     use ink::codegen::Env;
     use ink::env::test::*;
     use ink::env::DefaultEnvironment;
@@ -950,33 +927,7 @@ mod tests {
     }
 
     fn get_test_name_service() -> DomainNameService {
-        DomainNameService::new(
-            None,
-            None,
-            None,
-            [0u8; 32],
-            None,
-            None,
-            (5, 99),
-            vec![
-                UnicodeRange {
-                    lower: 'a' as u32,
-                    upper: 'z' as u32,
-                },
-                UnicodeRange {
-                    lower: '0' as u32,
-                    upper: '9' as u32,
-                },
-                UnicodeRange {
-                    lower: '-' as u32,
-                    upper: '-' as u32,
-                },
-            ],
-            vec![UnicodeRange {
-                lower: '-' as u32,
-                upper: '-' as u32,
-            }],
-        )
+        DomainNameService::new(None, None, None, None)
     }
 
     #[ink::test]
@@ -1750,33 +1701,7 @@ mod tests {
         let accounts = default_accounts();
         let reserved_list = vec![("bob".to_string(), Some(accounts.bob))];
 
-        let mut contract = DomainNameService::new(
-            None,
-            None,
-            None,
-            [0u8; 32],
-            Some(reserved_list),
-            None,
-            (5, 99),
-            vec![
-                UnicodeRange {
-                    lower: 'a' as u32,
-                    upper: 'z' as u32,
-                },
-                UnicodeRange {
-                    lower: '0' as u32,
-                    upper: '9' as u32,
-                },
-                UnicodeRange {
-                    lower: '-' as u32,
-                    upper: '-' as u32,
-                },
-            ],
-            vec![UnicodeRange {
-                lower: '-' as u32,
-                upper: '-' as u32,
-            }],
-        );
+        let mut contract = DomainNameService::new(None, None, None, Some(reserved_list));
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
         contract
