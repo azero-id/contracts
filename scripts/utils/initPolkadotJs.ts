@@ -7,7 +7,7 @@ import { IKeyringPair } from '@polkadot/types/types/interfaces'
 export const initPolkadotJs = async (
   rpc: string | string[],
   uri: string,
-): Promise<{ api: ApiPromise; account: IKeyringPair; decimals: number }> => {
+): Promise<{ api: ApiPromise; keyring: Keyring; account: IKeyringPair; decimals: number }> => {
   // Initialize api
   if (Array.isArray(rpc)) rpc = rpc?.[0]
   if (!rpc) throw new Error('No RPC given')
@@ -27,5 +27,5 @@ export const initPolkadotJs = async (
   const account = keyring.addFromUri(uri)
   console.log(`Initialized Accounts: ${account.address}\n`)
 
-  return { api, account, decimals }
+  return { api, keyring, account, decimals }
 }
