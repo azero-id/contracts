@@ -10,7 +10,7 @@ ink = { version = "4.0.0-rc", default-features = false }
 
 azns_name_checker = { path = "../azns_name_checker", default-features = false, features = ["ink-as-dependency"] }
 azns_fee_calculator = { path = "../azns_fee_calculator", default-features = false, features = ["ink-as-dependency"] }
-merkle_verifier = { path = "../merkle_verifier", default-features = false, features = ["ink-as-dependency"] }
+azns_merkle_verifier = { path = "../azns_merkle_verifier", default-features = false, features = ["ink-as-dependency"] }
 
 scale = { package = "parity-scale-codec", version = "3", default-features = false, features = ["derive"] }
 scale-info = { version = "2.3", default-features = false, features = ["derive"], optional = true }
@@ -31,7 +31,7 @@ std = [
     "scale-info/std",
     "azns_name_checker/std",
     "azns_fee_calculator/std",
-    "merkle_verifier/std",
+    "azns_merkle_verifier/std",
 ]
 ink-as-dependency = []
 

@@ -12,9 +12,9 @@ mod azns_registry {
     use ink::storage::traits::ManualKey;
     use ink::storage::{Lazy, Mapping};
 
+    use azns_merkle_verifier::MerkleVerifierRef;
     use azns_name_checker::NameCheckerRef;
     use azns_name_checker::UnicodeRange;
-    use merkle_verifier::MerkleVerifierRef;
 
     const YEAR: u64 = match cfg!(test) {
         true => 60,                         // For testing purpose

@@ -1,5 +1,5 @@
 [package]
-name = "merkle_verifier"
+name = "azns_merkle_verifier"
 version = "0.1.0"
 authors = ["AZERO Domains <hello@azero.domains>"]
 edition = "2021"
@@ -13,7 +13,7 @@ scale-info = { version = "2.3", default-features = false, features = ["derive"],
 hex = { version = "0.4.3", default-features = false }
 
 [lib]
-name = "merkle_verifier"
+name = "azns_merkle_verifier"
 path = "lib.rs"
 crate-type = [
 	# Used for normal contract Wasm blobs.
