@@ -17,7 +17,7 @@
     "@polkadot/api-contract": "^9.14.2",
     "@polkadot/types": "^9.14.2",
     "@polkadot/util": "^10.4.2",
-    "@scio-labs/use-inkathon": "0.0.1-alpha.21",
+    "@scio-labs/use-inkathon": "0.0.1-alpha.24",
     "@types/node": "^18.14.0",
     "bn.js": "^5.2.1",
     "crypto-js": "^4.1.1",

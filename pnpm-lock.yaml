@@ -5,7 +5,7 @@ specifiers:
   '@polkadot/api-contract': ^9.14.2
   '@polkadot/types': ^9.14.2
   '@polkadot/util': ^10.4.2
-  '@scio-labs/use-inkathon': 0.0.1-alpha.21
+  '@scio-labs/use-inkathon': 0.0.1-alpha.24
   '@types/node': ^18.14.0
   '@typescript-eslint/eslint-plugin': ^5.52.0
   '@typescript-eslint/parser': ^5.52.0
@@ -25,7 +25,7 @@ devDependencies:
   '@polkadot/api-contract': 9.14.2
   '@polkadot/types': 9.14.2
   '@polkadot/util': 10.4.2
-  '@scio-labs/use-inkathon': 0.0.1-alpha.21_bmgtktbe4ubxpef7dx23pckgba
+  '@scio-labs/use-inkathon': 0.0.1-alpha.24_utbmqkhcibgujv37yxe4oovlpm
   '@types/node': 18.14.0
   '@typescript-eslint/eslint-plugin': 5.52.0_6cfvjsbua5ptj65675bqcn6oza
   '@typescript-eslint/parser': 5.52.0_7kw3g6rralp5ps6mg3uyzz6azm
@@ -44,6 +44,13 @@ packages:
 
   /@babel/runtime/7.20.13:
     resolution: {integrity: sha512-gt3PKXs0DBoL9xCvOIIZ2NEqAGZqHjAnmVbfQtB620V0uReIQutpel14KcneZuer7UioY8ALKZ7iocavvzTNFA==}
+    engines: {node: '>=6.9.0'}
+    dependencies:
+      regenerator-runtime: 0.13.11
+    dev: true
+
+  /@babel/runtime/7.21.0:
+    resolution: {integrity: sha512-xwII0//EObnq89Ji5AKYQaRYiW/nZ3llSv29d49IuxPhKbtJoLP+9QUUZ4nVragQVtaVGeZrpB+ZtG/Pdy/POw==}
     engines: {node: '>=6.9.0'}
     dependencies:
       regenerator-runtime: 0.13.11
@@ -235,16 +242,16 @@ packages:
       - utf-8-validate
     dev: true
 
-  /@polkadot/extension-dapp/0.44.8_coiyrdw3fz3iwjh25omodrt45q:
-    resolution: {integrity: sha512-CaGrY+Vh9u2ABPpLsbMEVQniQDKreBWEmtp0RzfmIbed8lmmOgwtfDZjb7ncTNR79WJX+1AD+VX5dKQtvT3S4w==}
+  /@polkadot/extension-dapp/0.44.9_coiyrdw3fz3iwjh25omodrt45q:
+    resolution: {integrity: sha512-xYY9bg4y2YW1ORWTflrPBypYueCpzajlYsU1CWuPP9fzKsdfd97wwa+dIYYvLbJy7tcivC+uIT3BpaFaJn2mXg==}
     peerDependencies:
       '@polkadot/api': '*'
       '@polkadot/util': '*'
       '@polkadot/util-crypto': '*'
     dependencies:
-      '@babel/runtime': 7.20.13
+      '@babel/runtime': 7.21.0
       '@polkadot/api': 9.14.2
-      '@polkadot/extension-inject': 0.44.8_@polkadot+api@9.14.2
+      '@polkadot/extension-inject': 0.44.9_@polkadot+api@9.14.2
       '@polkadot/util': 10.4.2
       '@polkadot/util-crypto': 10.4.2_@polkadot+util@10.4.2
     transitivePeerDependencies:
@@ -253,12 +260,12 @@ packages:
       - utf-8-validate
     dev: true
 
-  /@polkadot/extension-inject/0.44.8_@polkadot+api@9.14.2:
-    resolution: {integrity: sha512-srBjCgOMUuQTCvU2Mu6hPHEmrxqJb+DImh8lHy79bpz4IoTATepuJGdeDONUiLS4KFhUstFSxkVsbL/4YSEVng==}
+  /@polkadot/extension-inject/0.44.9_@polkadot+api@9.14.2:
+    resolution: {integrity: sha512-c23vp0C/8R5C3gdqoH2JRlKcvVjJFl9uM3t6rM/uwDs7GEQr9jrsmIOHGhNoI1/M/xBrCm/KuYNYi0dafdm/Vw==}
     peerDependencies:
       '@polkadot/api': '*'
     dependencies:
-      '@babel/runtime': 7.20.13
+      '@babel/runtime': 7.21.0
       '@polkadot/api': 9.14.2
       '@polkadot/rpc-provider': 9.14.2
       '@polkadot/types': 9.14.2
@@ -577,22 +584,22 @@ packages:
       - supports-color
     dev: true
 
-  /@scio-labs/use-inkathon/0.0.1-alpha.21_bmgtktbe4ubxpef7dx23pckgba:
-    resolution: {integrity: sha512-QD8+wgcchRVekGgxAU9yZOQYg7DG+Js3n4w8z3L+MLlVWNeGpw4xHn4ci8xdbRiOAVQiXqsl9GZeLI4560JrQg==}
+  /@scio-labs/use-inkathon/0.0.1-alpha.24_utbmqkhcibgujv37yxe4oovlpm:
+    resolution: {integrity: sha512-i12TlqgdAq60aEAqt+KS4S3A5kre3rNuk7ZnBZl3+ANTXEKyUMeZz4huN6rfUnc7FXeOxsvHrWT3uWTP5JY9MA==}
     peerDependencies:
-      '@polkadot/api': 9.13.6
-      '@polkadot/api-contract': 9.13.6
-      '@polkadot/extension-dapp': 0.44.8
-      '@polkadot/extension-inject': 0.44.8
-      '@polkadot/types': 9.13.6
-      '@polkadot/util': 10.3.1
-      react: 18.2.0 || ^18.0.0
-      react-dom: 18.2.0 || ^18.0.0
+      '@polkadot/api': ^9.14.0
+      '@polkadot/api-contract': ^9.14.0
+      '@polkadot/extension-dapp': ^0.44.0
+      '@polkadot/extension-inject': ^0.44.0
+      '@polkadot/types': ^9.14.0
+      '@polkadot/util': ^10.4.0
+      react: ^18.0.0
+      react-dom: ^18.0.0
     dependencies:
       '@polkadot/api': 9.14.2
       '@polkadot/api-contract': 9.14.2
-      '@polkadot/extension-dapp': 0.44.8_coiyrdw3fz3iwjh25omodrt45q
-      '@polkadot/extension-inject': 0.44.8_@polkadot+api@9.14.2
+      '@polkadot/extension-dapp': 0.44.9_coiyrdw3fz3iwjh25omodrt45q
+      '@polkadot/extension-inject': 0.44.9_@polkadot+api@9.14.2
       '@polkadot/types': 9.14.2
       '@polkadot/util': 10.4.2
       react: 18.2.0
