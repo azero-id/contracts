@@ -6,8 +6,11 @@ import { contractQuery, deployContract, getSubstrateChain } from '@scio-labs/use
 import BN from 'bn.js'
 import cryptojs from 'crypto-js'
 import * as dotenv from 'dotenv'
+import { existsSync } from 'fs'
+import { open } from 'fs/promises'
 import sha3js from 'js-sha3'
 import { MerkleTree } from 'merkletreejs'
+import path from 'path'
 import { contractTxPromise } from './utils/contractTxPromise'
 import { getDeploymentData } from './utils/getDeploymentData'
 import { initPolkadotJs } from './utils/initPolkadotJs'
@@ -30,14 +33,25 @@ const hashAccountId = (accountId: string) => {
  * @returns MerkleTree Object
  */
 const constructMerkleTree = async (account: IKeyringPair) => {
-  const leaves = [
-    '5Gju41fG3iX4ZgYP8qYeJgNntSaAXYdh84F6pa1nVxCgVibu',
-    '5E56jqWxmhdnuUy6RJsar2Uf89FjUDtCKRTEFcf5SyyvoZJg',
-    '5CcBFjse1bTp1eeFUR5sAjxVQm4nuD3vgtJZy6p3iFj4ae63',
-    account.address,
-  ].map((addr) => hashAccountId(addr))
+  let addressLeaves = [
+    hashAccountId(account.address), // For testing
+  ]
 
-  const tree = new MerkleTree(leaves, sha3js.keccak256, {
+  // Fetch whitelisted accounts
+  if (process.env.WHITELIST) {
+    const whitelistFilePath = path.join(path.resolve(), process.env.WHITELIST)
+    if (!existsSync(whitelistFilePath)) {
+      throw new Error(`Whitelist file not found at ${whitelistFilePath}`)
+    }
+    addressLeaves = []
+    const whitelistFile = await open(whitelistFilePath)
+    for await (const address of whitelistFile.readLines()) {
+      addressLeaves.push(hashAccountId(address))
+    }
+  }
+
+  console.log('Number of leaves (addresses):', addressLeaves.length)
+  const tree = new MerkleTree(addressLeaves, sha3js.keccak256, {
     sortPairs: true,
   })
 
@@ -94,7 +108,6 @@ const registerWithProof = async (
     ])
     console.log(`Registered domain '${domain}.azero' successfully`)
   } catch (e) {
-    console.log(e)
     console.error(`Error while registering domain:`, e?.failedEvent?.event?.data?.toHuman())
   }
 }
