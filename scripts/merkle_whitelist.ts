@@ -5,11 +5,13 @@ import { bufferToU8a, hexToNumber, u8aToHex } from '@polkadot/util'
 import { contractQuery, deployContract, getSubstrateChain } from '@scio-labs/use-inkathon'
 import BN from 'bn.js'
 import cryptojs from 'crypto-js'
+import * as dotenv from 'dotenv'
 import sha3js from 'js-sha3'
 import { MerkleTree } from 'merkletreejs'
 import { contractTxPromise } from './utils/contractTxPromise'
 import { getDeploymentData } from './utils/getDeploymentData'
 import { initPolkadotJs } from './utils/initPolkadotJs'
+dotenv.config({ path: `.env.${process.env.CHAIN}` })
 
 /**
  * Parses & Hashes the accountId

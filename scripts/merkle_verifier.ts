@@ -4,10 +4,12 @@ import { IKeyringPair } from '@polkadot/types/types/interfaces'
 import { bufferToU8a, hexToNumber, hexToU8a } from '@polkadot/util'
 import { contractQuery, deployContract, getSubstrateChain } from '@scio-labs/use-inkathon'
 import cryptojs from 'crypto-js'
+import * as dotenv from 'dotenv'
 import sha3js from 'js-sha3'
 import { MerkleTree } from 'merkletreejs'
 import { getDeploymentData } from './utils/getDeploymentData'
 import { initPolkadotJs } from './utils/initPolkadotJs'
+dotenv.config({ path: `.env.${process.env.CHAIN}` })
 
 /**
  * Checks on-chain Proofs work
