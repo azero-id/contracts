@@ -120,14 +120,14 @@ mod azns_registry {
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
+        /// Caller not allowed to call privileged calls.
+        NotAdmin,
         /// Returned if the name already exists upon registration.
         NameAlreadyExists,
         /// Returned if the name has not been registered
         NameDoesntExist,
         /// Name is (currently) now allowed
         NameNotAllowed,
-        /// Caller is not an admin while required to.
-        CallerIsNotAdmin,
         /// Returned if caller is not names' owner.
         CallerIsNotOwner,
         /// This call requires the caller to be a controller of the domain
@@ -166,13 +166,12 @@ mod azns_registry {
         /// Creates a new AZNS contract.
         #[ink(constructor)]
         pub fn new(
+            admin: AccountId,
             name_checker_addr: Option<AccountId>,
             fee_calculator_addr: Option<AccountId>,
             merkle_verifier_addr: Option<AccountId>,
             reserved_domains: Option<Vec<(String, Option<AccountId>)>>,
         ) -> Self {
-            let caller = Self::env().caller();
-
             // Initializing NameChecker
             let name_checker = name_checker_addr.map(|addr| NameCheckerRef::from_account_id(addr));
 
@@ -185,7 +184,7 @@ mod azns_registry {
                 fee_calculator_addr.map(|addr| FeeCalculatorRef::from_account_id(addr));
 
             let mut contract = Self {
-                admin: caller,
+                admin,
                 name_checker,
                 fee_calculator,
                 name_to_address_dict: Mapping::default(),
@@ -624,6 +623,11 @@ mod azns_registry {
             set.into_iter().collect()
         }
 
+        #[ink(message)]
+        pub fn get_admin(&self) -> AccountId {
+            self.admin
+        }
+
         /// Returns `true` when contract is in whitelist-phase
         /// and `false` when it is in public-phase
         #[ink(message)]
@@ -660,21 +664,6 @@ mod azns_registry {
             if Self::env().transfer(Self::env().caller(), value).is_err() {
                 return Err(Error::WithdrawFailed);
             }
-
-            Ok(())
-        }
-
-        /// (ADMIN-OPERATION)
-        /// Update the merkle root
-        #[ink(message)]
-        pub fn update_merkle_root(&mut self, new_root: [u8; 32]) -> Result<()> {
-            self.ensure_admin()?;
-
-            let mut address_verifier = self.whitelisted_address_verifier.get_or_default();
-            let Some(verifier) = address_verifier.as_mut() else {
-                return Err(Error::OnlyDuringWhitelistPhase);
-            };
-            verifier.update_root(new_root);
 
             Ok(())
         }
@@ -735,9 +724,16 @@ mod azns_registry {
             Ok(())
         }
 
+        #[ink(message)]
+        pub fn set_admin(&mut self, account: AccountId) -> Result<()> {
+            self.ensure_admin()?;
+            self.admin = account;
+            Ok(())
+        }
+
         fn ensure_admin(&self) -> Result<()> {
             if self.admin != self.env().caller() {
-                Err(Error::CallerIsNotAdmin)
+                Err(Error::NotAdmin)
             } else {
                 Ok(())
             }
@@ -927,7 +923,7 @@ mod tests {
     }
 
     fn get_test_name_service() -> DomainNameService {
-        DomainNameService::new(None, None, None, None)
+        DomainNameService::new(default_accounts().alice, None, None, None, None)
     }
 
     #[ink::test]
@@ -1272,10 +1268,7 @@ mod tests {
         assert_eq!(contract.register(name, 1, None, None, false), Ok(()));
 
         set_next_caller(default_accounts.bob);
-        assert_eq!(
-            contract.withdraw(160_u128.pow(12)),
-            Err(Error::CallerIsNotAdmin)
-        );
+        assert_eq!(contract.withdraw(160_u128.pow(12)), Err(Error::NotAdmin));
     }
 
     #[ink::test]
@@ -1626,10 +1619,7 @@ mod tests {
 
         // Invocation from non-admin address fails
         set_next_caller(accounts.bob);
-        assert_eq!(
-            contract.add_reserved_domains(vec![]),
-            Err(Error::CallerIsNotAdmin)
-        );
+        assert_eq!(contract.add_reserved_domains(vec![]), Err(Error::NotAdmin));
     }
 
     #[ink::test]
@@ -1659,7 +1649,7 @@ mod tests {
         set_next_caller(accounts.bob);
         assert_eq!(
             contract.remove_reserved_domain(vec![]),
-            Err(Error::CallerIsNotAdmin)
+            Err(Error::NotAdmin)
         );
     }
 
@@ -1701,7 +1691,13 @@ mod tests {
         let accounts = default_accounts();
         let reserved_list = vec![("bob".to_string(), Some(accounts.bob))];
 
-        let mut contract = DomainNameService::new(None, None, None, Some(reserved_list));
+        let mut contract = DomainNameService::new(
+            default_accounts().alice,
+            None,
+            None,
+            None,
+            Some(reserved_list),
+        );
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
         contract
@@ -1938,6 +1934,19 @@ mod tests {
             contract.register(name1.clone(), 1, None, None, false),
             Ok(())
         );
+    }
+
+    #[ink::test]
+    fn set_admin_works() {
+        let accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        assert_eq!(contract.get_admin(), accounts.alice);
+        assert_eq!(contract.set_admin(accounts.bob), Ok(()));
+        assert_eq!(contract.get_admin(), accounts.bob);
+
+        // Now alice (not admin anymore) cannot update admin
+        assert_eq!(contract.set_admin(accounts.alice), Err(Error::NotAdmin));
     }
 
     // TODO Need cross-contract test support
