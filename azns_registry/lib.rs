@@ -12,7 +12,7 @@ mod azns_registry {
     use ink::storage::traits::ManualKey;
     use ink::storage::{Lazy, Mapping};
 
-    use azns_fee_calculator::AznsFeeCalculatorRef;
+    use azns_fee_calculator::FeeCalculatorRef;
     use azns_merkle_verifier::MerkleVerifierRef;
     use azns_name_checker::NameCheckerRef;
 
@@ -90,7 +90,7 @@ mod azns_registry {
         /// Contract which verifies the validity of a name
         name_checker: Option<NameCheckerRef>,
         /// Contract which calculates the name price
-        fee_calculator: Option<AznsFeeCalculatorRef>,
+        fee_calculator: Option<FeeCalculatorRef>,
         /// Names which can be claimed only by the specified user
         reserved_names: Mapping<String, Option<AccountId>, ManualKey<100>>,
 
@@ -182,7 +182,7 @@ mod azns_registry {
 
             // Initializing FeeCalculator
             let fee_calculator =
-                fee_calculator_addr.map(|addr| AznsFeeCalculatorRef::from_account_id(addr));
+                fee_calculator_addr.map(|addr| FeeCalculatorRef::from_account_id(addr));
 
             let mut contract = Self {
                 admin: caller,

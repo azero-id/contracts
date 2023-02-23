@@ -27,7 +27,7 @@ macro_rules! ensure {
     }};
 }
 
-pub use self::azns_fee_calculator::{AznsFeeCalculator, AznsFeeCalculatorRef};
+pub use self::azns_fee_calculator::{FeeCalculator, FeeCalculatorRef};
 
 #[ink::contract]
 mod azns_fee_calculator {
@@ -39,7 +39,7 @@ mod azns_fee_calculator {
     pub type Length = u8;
 
     #[ink(storage)]
-    pub struct AznsFeeCalculator {
+    pub struct FeeCalculator {
         /// Account allowed to modify the variables
         admin: AccountId,
         /// Maximum registration duration allowed (in years)
@@ -50,7 +50,7 @@ mod azns_fee_calculator {
         price_by_length: Mapping<Length, Balance, ManualKey<100>>,
     }
 
-    impl AznsFeeCalculator {
+    impl FeeCalculator {
         /// Constructor that initializes the `bool` value to the given `init_value`.
         #[ink(constructor)]
         pub fn new(
@@ -184,10 +184,10 @@ mod azns_fee_calculator {
             ink::env::test::default_accounts::<DefaultEnvironment>()
         }
 
-        fn get_test_fee_calculator() -> AznsFeeCalculator {
+        fn get_test_fee_calculator() -> FeeCalculator {
             let contract_addr: AccountId = AccountId::from([0xFF as u8; 32]);
             set_callee::<DefaultEnvironment>(contract_addr);
-            AznsFeeCalculator::new(
+            FeeCalculator::new(
                 default_accounts().alice,
                 3,
                 6_u128 * 10_u128.pow(12),
