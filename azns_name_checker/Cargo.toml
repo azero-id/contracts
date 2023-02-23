@@ -16,17 +16,9 @@ unicode-segmentation = "1.10.1"
 [lib]
 name = "azns_name_checker"
 path = "lib.rs"
-crate-type = [
-    "cdylib",
-    "rlib",
-]
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["std"]
-std = [
-    "ink/std",
-    "scale/std",
-    "scale-info/std",
-]
+std = ["ink/std", "scale/std", "scale-info/std"]
 ink-as-dependency = []
-
