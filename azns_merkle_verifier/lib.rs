@@ -16,19 +16,24 @@ mod merkle_verifier {
         root: [u8; 32],
     }
 
+    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum Error {
+        /// Caller not allowed to call privileged calls.
+        NotAdmin,
+    }
+
     impl MerkleVerifier {
         #[ink(constructor)]
-        pub fn new(root: [u8; 32]) -> Self {
-            Self {
-                admin: Self::env().caller(),
-                root,
-            }
+        pub fn new(admin: AccountId, root: [u8; 32]) -> Self {
+            Self { admin, root }
         }
 
         #[ink(message)]
-        pub fn update_root(&mut self, new_root: [u8; 32]) {
-            assert_eq!(self.env().caller(), self.admin, "Unauthorized call");
+        pub fn update_root(&mut self, new_root: [u8; 32]) -> Result<(), Error> {
+            self.ensure_admin()?;
             self.root = new_root;
+            Ok(())
         }
 
         /// Returns the merkle root
@@ -61,6 +66,25 @@ mod merkle_verifier {
             Keccak256::hash(input, &mut output);
             output
         }
+
+        #[ink(message)]
+        pub fn get_admin(&self) -> AccountId {
+            self.admin
+        }
+
+        #[ink(message)]
+        pub fn set_admin(&mut self, account: AccountId) -> Result<(), Error> {
+            self.ensure_admin()?;
+            self.admin = account;
+            Ok(())
+        }
+
+        fn ensure_admin(&self) -> Result<(), Error> {
+            match self.env().caller() == self.admin {
+                true => Ok(()),
+                false => Err(Error::NotAdmin),
+            }
+        }
     }
 
     #[cfg(test)]
@@ -68,38 +92,55 @@ mod merkle_verifier {
         /// Imports all the definitions from the outer scope so we can use them here.
         use super::*;
         use ink::env::hash::{CryptoHash, Sha2x256};
+        use ink::env::test::default_accounts;
+        use ink::env::DefaultEnvironment;
 
         #[ink::test]
         fn root_works() {
+            let alice = default_accounts::<DefaultEnvironment>().alice;
             let root = [0xff; 32];
-            let merkle_verifier = MerkleVerifier::new(root);
+            let merkle_verifier = MerkleVerifier::new(alice, root);
 
             assert_eq!(merkle_verifier.root(), root);
         }
 
         #[ink::test]
         fn update_root_works() {
+            let alice = default_accounts::<DefaultEnvironment>().alice;
             let root = [0xff; 32];
-            let mut merkle_verifier = MerkleVerifier::new(root);
+            let mut merkle_verifier = MerkleVerifier::new(alice, root);
 
             let new_root = [0x00; 32];
-            merkle_verifier.update_root(new_root);
+            assert_eq!(merkle_verifier.update_root(new_root), Ok(()));
 
             assert_eq!(merkle_verifier.root(), new_root);
         }
 
         #[ink::test]
-        #[should_panic(expected = "Unauthorized call")]
-        fn only_admin_works() {
+        fn set_admin_works() {
+            let accounts = default_accounts::<DefaultEnvironment>();
             let root = [0xff; 32];
-            let mut merkle_verifier = MerkleVerifier::new(root);
+            let mut contract = MerkleVerifier::new(accounts.alice, root);
+
+            assert_eq!(contract.get_admin(), accounts.alice);
+            assert_eq!(contract.set_admin(accounts.bob), Ok(()));
+            assert_eq!(contract.get_admin(), accounts.bob);
+
+            // Now alice (not admin anymore) cannot update admin
+            assert_eq!(contract.set_admin(accounts.alice), Err(Error::NotAdmin));
+        }
+
+        #[ink::test]
+        fn only_admin_works() {
+            let accounts = default_accounts::<DefaultEnvironment>();
+            let root = [0xff; 32];
+            let mut merkle_verifier = MerkleVerifier::new(accounts.alice, root);
 
             // Verify update_root fails
-            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
-            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            ink::env::test::set_caller::<DefaultEnvironment>(accounts.bob);
 
             let new_root = [0x00; 32];
-            merkle_verifier.update_root(new_root);
+            assert_eq!(merkle_verifier.update_root(new_root), Err(Error::NotAdmin));
         }
 
         // Test that the param ordering should not matter
@@ -149,7 +190,8 @@ mod merkle_verifier {
             let root = MerkleVerifier::compute_hash(&internal_nodes[0], &internal_nodes[1]);
 
             // Create the MerkleVerifier contract
-            let merkle_verifier = MerkleVerifier::new(root);
+            let alice = default_accounts::<DefaultEnvironment>().alice;
+            let merkle_verifier = MerkleVerifier::new(alice, root);
 
             // Prove leaves[1] is a part of the tree
             let leaf = leaves[1];
