@@ -6,6 +6,7 @@ import { getDeploymentData } from '../utils/getDeploymentData'
  * Deploys the `azns_registry` contract
  */
 export type RegistryArgs = {
+  admin: string
   aznsNameCheckerAddress: string
   aznsFeeCalculatorAddress: string
   aznsMerkleVerifierAddress: string
@@ -14,6 +15,7 @@ export type RegistryArgs = {
 export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, customArgs) => {
   const args = Object.assign(
     {
+      admin: account.address,
       aznsNameCheckerAddress: null,
       aznsFeeCalculatorAddress: null,
       aznsMerkleVerifierAddress: null,
@@ -24,6 +26,7 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
   const { abi, wasm } = await getDeploymentData('azns_registry')
 
   return await deployContract(api, account, abi, wasm, 'new', [
+    args.admin,
     args.aznsNameCheckerAddress,
     args.aznsFeeCalculatorAddress,
     args.aznsMerkleVerifierAddress,

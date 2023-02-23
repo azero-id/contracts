@@ -8,6 +8,7 @@ import { getWhitelistAddresses } from '../whitelist/getWhitelistAddresses'
  * Deploys the `azns_merkle_verifier` contract
  */
 export type MerkleVerifierArgs = {
+  admin: string
   root: Uint8Array
 }
 export const deployMerkleVerifier: DeployFn<MerkleVerifierArgs> = async (
@@ -16,24 +17,37 @@ export const deployMerkleVerifier: DeployFn<MerkleVerifierArgs> = async (
 ) => {
   const args = Object.assign(
     {
+      admin: account.address,
       root: new Uint8Array(),
     } as MerkleVerifierArgs,
     customArgs,
   )
   const { abi, wasm } = await getDeploymentData('azns_merkle_verifier')
 
-  return await deployContract(api, account, abi, wasm, 'new', [args.root])
+  return await deployContract(api, account, abi, wasm, 'new', [args.admin, args.root])
 }
 
 /**
  * Deploys the `azns_merkle_verifier` contract with a merkle-tree of fetched whitelist addresses.
  */
-export const deployMerkleVerifierWithWhitelist: DeployFn<never> = async ({ api, account }) => {
+export const deployMerkleVerifierWithWhitelist: DeployFn<Omit<MerkleVerifierArgs, 'root'>> = async (
+  { api, account },
+  customArgs,
+) => {
   // Fetch whitelist addresses & construct merkle tree
   const addresses = await getWhitelistAddresses(process.env.WHITELIST)
   const { encodedRoot } = constructMerkleTree(addresses)
 
+  // Gather deployment params & data
+  const args = Object.assign(
+    {
+      admin: account.address,
+      root: encodedRoot,
+    } as MerkleVerifierArgs,
+    customArgs,
+  )
+
   const { abi, wasm } = await getDeploymentData('azns_merkle_verifier')
 
-  return await deployContract(api, account, abi, wasm, 'new', [encodedRoot])
+  return await deployContract(api, account, abi, wasm, 'new', [args.admin, args.root])
 }

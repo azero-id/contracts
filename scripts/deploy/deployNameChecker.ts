@@ -6,6 +6,7 @@ import { getDeploymentData } from '../utils/getDeploymentData'
  * Deploys the `azns_name_checker` contract
  */
 export type NameCheckerArgs = {
+  admin: string
   allowedLength: [number, number] // [min, max]
   allowedUnicodeRanges: [number, number][] // [start, end][]
   disallowedUnicodeRangesForEdges: [number, number][] // [start, end][]
@@ -16,6 +17,7 @@ export const deployNameChecker: DeployFn<NameCheckerArgs> = async (
 ) => {
   const args = Object.assign(
     {
+      admin: account.address,
       allowedLength: [5, 64],
       allowedUnicodeRanges: [
         ['a'.charCodeAt(0), 'z'.charCodeAt(0)],
@@ -29,6 +31,7 @@ export const deployNameChecker: DeployFn<NameCheckerArgs> = async (
   const { abi, wasm } = await getDeploymentData('azns_name_checker')
 
   return await deployContract(api, account, abi, wasm, 'new', [
+    args.admin,
     args.allowedLength,
     args.allowedUnicodeRanges,
     args.disallowedUnicodeRangesForEdges,
