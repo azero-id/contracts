@@ -7,7 +7,6 @@ mod azns_registry {
     use crate::address_dict::AddressDict;
     use ink::env::hash::CryptoHash;
     use ink::prelude::string::{String, ToString};
-    use ink::prelude::vec;
     use ink::prelude::vec::Vec;
     use ink::storage::traits::ManualKey;
     use ink::storage::{Lazy, Mapping};
@@ -92,6 +91,7 @@ mod azns_registry {
 
         /// Metadata
         metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
+        metadata_size_limit: Option<u32>,
 
         /// All names an address owns
         owner_to_names: Mapping<AccountId, Vec<String>, ManualKey<300>>,
@@ -153,6 +153,8 @@ mod azns_registry {
         NotReservedDomain,
         /// User is not authorised to claim the given domain
         NotAuthorised,
+        /// Metadata size limit exceeded
+        MetadataOverflow,
     }
 
     impl DomainNameService {
@@ -168,6 +170,7 @@ mod azns_registry {
             allowed_unicode_ranges: Vec<UnicodeRange>,
             disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
             tld: String,
+            metadata_size_limit: Option<u32>,
         ) -> Self {
             let caller = Self::env().caller();
 
@@ -208,6 +211,7 @@ mod azns_registry {
                 whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
                 tld,
+                metadata_size_limit,
             };
 
             // Initialize address verifier
@@ -476,9 +480,9 @@ mod azns_registry {
             let caller: AccountId = Self::env().caller();
             self.ensure_controller(&caller, &name)?;
 
-            self.metadata.insert(name, &records);
+            self.metadata.insert(&name, &records);
 
-            Ok(())
+            self.ensure_metadata_under_limit(&name)
         }
 
         /// Sets one record
@@ -488,15 +492,11 @@ mod azns_registry {
             let caller: AccountId = Self::env().caller();
             self.ensure_controller(&caller, &name)?;
 
-            /* Previous records */
-            if let Some(metadata) = self.metadata.get(&name) {
-                let updated_metadata = self.update_metadata(metadata, &record.0, &record.1);
-                self.metadata.insert(name, &updated_metadata);
-            } else {
-                self.metadata.insert(name, &vec![record]);
-            }
+            let metadata = self.metadata.get(&name).unwrap_or_default();
+            let updated_metadata = self.update_metadata(metadata, &record.0, &record.1);
+            self.metadata.insert(&name, &updated_metadata);
 
-            Ok(())
+            self.ensure_metadata_under_limit(&name)
         }
 
         fn update_metadata(
@@ -506,12 +506,12 @@ mod azns_registry {
             value: &str,
         ) -> Vec<(String, String)> {
             let mut found = false;
-            let updated_metadata: Vec<(String, String)> = metadata
+            let mut updated_metadata: Vec<(String, String)> = metadata
                 .into_iter()
                 .map(|(k, v)| {
                     if k == key {
                         found = true;
-                        (k, value.to_owned())
+                        (k, value.to_string())
                     } else {
                         (k, v)
                     }
@@ -519,12 +519,9 @@ mod azns_registry {
                 .collect();
 
             if !found {
-                let mut updated_metadata = updated_metadata;
-                updated_metadata.push((key.to_owned(), value.to_owned()));
-                updated_metadata
-            } else {
-                updated_metadata
+                updated_metadata.push((key.to_string(), value.to_string()));
             }
+            updated_metadata
         }
 
         /// Returns the current status of the domain
@@ -643,6 +640,11 @@ mod azns_registry {
             set.into_iter().collect()
         }
 
+        #[ink(message)]
+        pub fn get_metadata_size_limit(&self) -> Option<u32> {
+            self.metadata_size_limit
+        }
+
         /// Returns `true` when contract is in whitelist-phase
         /// and `false` when it is in public-phase
         #[ink(message)]
@@ -738,6 +740,15 @@ mod azns_registry {
         }
 
         /// (ADMIN-OPERATION)
+        /// Update the limit of metadata allowed to store per name
+        #[ink(message)]
+        pub fn set_metadata_size_limit(&mut self, limit: Option<u32>) -> Result<()> {
+            self.ensure_admin()?;
+            self.metadata_size_limit = limit;
+            Ok(())
+        }
+
+        /// (ADMIN-OPERATION)
         /// Upgrade contract code
         #[ink(message)]
         pub fn upgrade_contract(&mut self, code_hash: [u8; 32]) -> Result<()> {
@@ -781,6 +792,16 @@ mod azns_registry {
                 Err(Error::CallerIsNotController)
             } else {
                 Ok(())
+            }
+        }
+
+        fn ensure_metadata_under_limit(&self, name: &str) -> Result<()> {
+            let size = self.metadata.size(name).unwrap_or(0);
+            let limit = self.metadata_size_limit.unwrap_or(u32::MAX);
+
+            match size <= limit {
+                true => Ok(()),
+                false => Err(Error::MetadataOverflow),
             }
         }
 
@@ -928,6 +949,7 @@ mod tests {
                 upper: '-' as u32,
             }],
             "azero".to_string(),
+            None,
         )
     }
 
@@ -1602,6 +1624,40 @@ mod tests {
     }
 
     #[ink::test]
+    fn metadata_limit_works() {
+        let mut contract = get_test_name_service();
+        let name = "alice".to_string();
+        let records = vec![
+            ("@twitter".to_string(), "alice_musk".to_string()),
+            ("@facebook".to_string(), "alice_zuk".to_string()),
+        ];
+
+        contract.set_metadata_size_limit(Some(40)).unwrap();
+        assert_eq!(contract.get_metadata_size_limit(), Some(40));
+
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        contract.register(name.clone(), None, None, false).unwrap();
+
+        // With current input, both records cannot be stored simultaneously
+        assert_eq!(
+            contract.set_all_records(name.clone(), records.clone()),
+            Err(Error::MetadataOverflow)
+        );
+
+        // Storing only one works
+        assert_eq!(
+            contract.set_all_records(name.clone(), records[0..1].to_vec()),
+            Ok(())
+        );
+
+        // Adding the second record fails
+        assert_eq!(
+            contract.set_record(name.clone(), records[1].clone()),
+            Err(Error::MetadataOverflow),
+        );
+    }
+
+    #[ink::test]
     fn add_reserved_domains_works() {
         let accounts = default_accounts();
         let mut contract = get_test_name_service();
@@ -1718,6 +1774,7 @@ mod tests {
                 upper: '-' as u32,
             }],
             "azero".to_string(),
+            None,
         );
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
