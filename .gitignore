@@ -143,3 +143,15 @@ fabric.properties
 # Node Scripts
 node_modules
 dist
+
+# Substrate Contracts Node Persistence Cache
+.node-data
+
+# Local deployments
+deployments
+# deployments/**/development.json
+# deployments/**/development.ts
+
+# Environment files
+*.env*
+!.env*.example

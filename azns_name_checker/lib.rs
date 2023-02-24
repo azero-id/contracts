@@ -28,10 +28,10 @@ mod azns_name_checker {
 
     #[ink(storage)]
     pub struct NameChecker {
+        admin: AccountId,
         allowed_unicode_ranges: Vec<UnicodeRange>,
         disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
         allowed_length: (Min, Max),
-        admin: AccountId,
     }
 
     pub type Result<T> = core::result::Result<T, Error>;
@@ -40,24 +40,26 @@ mod azns_name_checker {
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
+        /// Caller not allowed to call privileged calls.
+        NotAdmin,
         TooShort,
         TooLong,
         ContainsDisallowedCharacters,
-        CallerIsNotAdmin,
     }
 
     impl NameChecker {
         #[ink(constructor)]
         pub fn new(
+            admin: AccountId,
             allowed_length: (u8, u8),
             allowed_unicode_ranges: Vec<UnicodeRange>,
             disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
         ) -> Self {
             Self {
+                admin,
                 allowed_unicode_ranges,
                 allowed_length,
                 disallowed_unicode_ranges_for_edges,
-                admin: Self::env().caller(),
             }
         }
 
@@ -110,14 +112,6 @@ mod azns_name_checker {
             }
         }
 
-        fn ensure_admin(&self) -> Result<()> {
-            if self.admin != self.env().caller() {
-                Err(Error::CallerIsNotAdmin)
-            } else {
-                Ok(())
-            }
-        }
-
         #[ink(message)]
         pub fn set_allowed_unicode_ranges(&mut self, new_ranges: Vec<UnicodeRange>) -> Result<()> {
             self.ensure_admin()?;
@@ -141,6 +135,25 @@ mod azns_name_checker {
             self.allowed_length = new_length;
             Ok(())
         }
+
+        #[ink(message)]
+        pub fn get_admin(&self) -> AccountId {
+            self.admin
+        }
+
+        #[ink(message)]
+        pub fn set_admin(&mut self, account: AccountId) -> Result<()> {
+            self.ensure_admin()?;
+            self.admin = account;
+            Ok(())
+        }
+
+        fn ensure_admin(&self) -> Result<()> {
+            match self.env().caller() == self.admin {
+                true => Ok(()),
+                false => Err(Error::NotAdmin),
+            }
+        }
     }
 }
 
@@ -149,11 +162,15 @@ mod tests {
     use super::azns_name_checker::*;
     use crate::azns_name_checker::Error;
     use crate::UnicodeRange;
+    use ink::env::test::default_accounts;
+    use ink::env::DefaultEnvironment;
     use ink::prelude::string::String;
 
     #[ink::test]
     fn checks_length() {
+        let alice = default_accounts::<DefaultEnvironment>().alice;
         let checker = NameChecker::new(
+            alice,
             (2, 5),
             vec![
                 UnicodeRange {
@@ -180,7 +197,9 @@ mod tests {
 
     #[ink::test]
     fn checks_unicode_ranges() {
+        let alice = default_accounts::<DefaultEnvironment>().alice;
         let checker = NameChecker::new(
+            alice,
             (2, 5),
             vec![
                 UnicodeRange {
@@ -214,7 +233,9 @@ mod tests {
 
     #[ink::test]
     fn works_with_emojis() {
+        let alice = default_accounts::<DefaultEnvironment>().alice;
         let checker = NameChecker::new(
+            alice,
             (0, 99),
             vec![
                 UnicodeRange {
@@ -253,7 +274,9 @@ mod tests {
 
     #[ink::test]
     fn checks_edges() {
+        let alice = default_accounts::<DefaultEnvironment>().alice;
         let checker = NameChecker::new(
+            alice,
             (2, 5),
             vec![
                 UnicodeRange {
@@ -289,5 +312,18 @@ mod tests {
             checker.is_name_allowed(disallowed_edge_2),
             Err(Error::ContainsDisallowedCharacters)
         );
+    }
+
+    #[ink::test]
+    fn set_admin_works() {
+        let accounts = default_accounts::<DefaultEnvironment>();
+        let mut contract = NameChecker::new(accounts.alice, (2, 5), vec![], vec![]);
+
+        assert_eq!(contract.get_admin(), accounts.alice);
+        assert_eq!(contract.set_admin(accounts.bob), Ok(()));
+        assert_eq!(contract.get_admin(), accounts.bob);
+
+        // Now alice (not admin anymore) cannot update admin
+        assert_eq!(contract.set_admin(accounts.alice), Err(Error::NotAdmin));
     }
 }

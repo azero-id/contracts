@@ -5,15 +5,21 @@ mod address_dict;
 #[ink::contract]
 mod azns_registry {
     use crate::address_dict::AddressDict;
+    use ink::env::call::FromAccountId;
     use ink::env::hash::CryptoHash;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
     use ink::storage::traits::ManualKey;
     use ink::storage::{Lazy, Mapping};
 
+    use azns_fee_calculator::FeeCalculatorRef;
+    use azns_merkle_verifier::MerkleVerifierRef;
     use azns_name_checker::NameCheckerRef;
-    use azns_name_checker::UnicodeRange;
-    use merkle_verifier::MerkleVerifierRef;
+
+    const YEAR: u64 = match cfg!(test) {
+        true => 60,                         // For testing purpose
+        false => 365 * 24 * 60 * 60 * 1000, // Year in milliseconds
+    };
 
     pub type Result<T> = core::result::Result<T, Error>;
 
@@ -83,12 +89,15 @@ mod azns_registry {
         admin: AccountId,
         /// Contract which verifies the validity of a name
         name_checker: Option<NameCheckerRef>,
+        /// Contract which calculates the name price
+        fee_calculator: Option<FeeCalculatorRef>,
         /// Names which can be claimed only by the specified user
         reserved_names: Mapping<String, Option<AccountId>, ManualKey<100>>,
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
-
+        /// Mapping from name to its expiry timestamp
+        name_to_expiry: Mapping<String, u64>,
         /// Metadata
         metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
         metadata_size_limit: Option<u32>,
@@ -115,14 +124,14 @@ mod azns_registry {
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
+        /// Caller not allowed to call privileged calls.
+        NotAdmin,
         /// Returned if the name already exists upon registration.
         NameAlreadyExists,
         /// Returned if the name has not been registered
         NameDoesntExist,
         /// Name is (currently) now allowed
         NameNotAllowed,
-        /// Caller is not an admin while required to.
-        CallerIsNotAdmin,
         /// Returned if caller is not names' owner.
         CallerIsNotOwner,
         /// This call requires the caller to be a controller of the domain
@@ -155,54 +164,39 @@ mod azns_registry {
         NotAuthorised,
         /// Metadata size limit exceeded
         MetadataOverflow,
+        /// Thrown when fee_calculator doesn't return a names' price
+        FeeError(azns_fee_calculator::Error),
     }
 
     impl DomainNameService {
         /// Creates a new AZNS contract.
         #[ink(constructor)]
         pub fn new(
-            name_checker_hash: Option<Hash>,
-            merkle_verifier_hash: Option<Hash>,
-            merkle_root: [u8; 32],
+            admin: AccountId,
+            name_checker_addr: Option<AccountId>,
+            fee_calculator_addr: Option<AccountId>,
+            merkle_verifier_addr: Option<AccountId>,
             reserved_domains: Option<Vec<(String, Option<AccountId>)>>,
-            version: Option<u32>,
-            allowed_length: (u8, u8),
-            allowed_unicode_ranges: Vec<UnicodeRange>,
-            disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
             tld: String,
             metadata_size_limit: Option<u32>,
         ) -> Self {
-            let caller = Self::env().caller();
-
             // Initializing NameChecker
-            let total_balance = Self::env().balance();
-            let salt = version.unwrap_or(1u32).to_le_bytes();
-
-            let name_checker = name_checker_hash.map(|hash| {
-                NameCheckerRef::new(
-                    allowed_length,
-                    allowed_unicode_ranges,
-                    disallowed_unicode_ranges_for_edges,
-                )
-                .endowment(total_balance / 4) // TODO why /4?
-                .code_hash(hash)
-                .salt_bytes(salt)
-                .instantiate()
-            });
+            let name_checker = name_checker_addr.map(|addr| NameCheckerRef::from_account_id(addr));
 
             // Initializing MerkleVerifier
-            let whitelisted_address_verifier = merkle_verifier_hash.map(|ch| {
-                MerkleVerifierRef::new(merkle_root)
-                    .endowment(total_balance / 4) // TODO why /4?
-                    .code_hash(ch)
-                    .salt_bytes(salt)
-                    .instantiate()
-            });
+            let whitelisted_address_verifier =
+                merkle_verifier_addr.map(|addr| MerkleVerifierRef::from_account_id(addr));
+
+            // Initializing FeeCalculator
+            let fee_calculator =
+                fee_calculator_addr.map(|addr| FeeCalculatorRef::from_account_id(addr));
 
             let mut contract = Self {
-                admin: caller,
+                admin,
                 name_checker,
+                fee_calculator,
                 name_to_address_dict: Mapping::default(),
+                name_to_expiry: Mapping::default(),
                 owner_to_names: Default::default(),
                 metadata: Default::default(),
                 address_to_primary_domain: Default::default(),
@@ -235,6 +229,7 @@ mod azns_registry {
             &mut self,
             name: String,
             recipient: AccountId,
+            years_to_register: u8,
             referrer: Option<String>,
             merkle_proof: Option<Vec<[u8; 32]>>,
         ) -> Result<()> {
@@ -247,8 +242,8 @@ mod azns_registry {
                 return Err(Error::CannotBuyReservedDomain);
             }
 
-            // (TODO) call the domain-price function
-            let domain_price = 1000;
+            // Call the domain-price function
+            let domain_price = self.get_name_price(&name, years_to_register)?;
             // Discount as a part of referral-system
             let mut discount: Balance = 0;
             // Affiliate Address
@@ -275,9 +270,15 @@ mod azns_registry {
             } else {
                 // Referral system is active only after whitelist-phase is over
                 if let Some(referrer_name) = referrer {
-                    if let Ok(resolved) = self.get_address(referrer_name) {
-                        affiliate = Some(resolved);
-                        discount = 5 * domain_price / 100; // 5% discount
+                    let address_dict = self.get_address_dict_ref(&referrer_name);
+                    if let Ok(x) = address_dict {
+                        if recipient != x.owner
+                            && recipient != x.controller
+                            && recipient != x.resolved
+                        {
+                            affiliate = Some(x.resolved);
+                            discount = 5 * domain_price / 100; // 5% discount
+                        }
                     }
                 }
             }
@@ -288,7 +289,8 @@ mod azns_registry {
                 return Err(Error::FeeNotPaid);
             }
 
-            self.register_domain(&name, &recipient)?;
+            let expiry_time = self.env().block_timestamp() + YEAR * years_to_register as u64;
+            self.register_domain(&name, &recipient, expiry_time)?;
 
             // Pay the affiliate (if present) after successful registration
             if let Some(usr) = affiliate {
@@ -307,11 +309,18 @@ mod azns_registry {
         pub fn register(
             &mut self,
             name: String,
+            years_to_register: u8,
             referrer: Option<String>,
             merkle_proof: Option<Vec<[u8; 32]>>,
             set_as_primary_domain: bool,
         ) -> Result<()> {
-            self.register_on_behalf_of(name.clone(), self.env().caller(), referrer, merkle_proof)?;
+            self.register_on_behalf_of(
+                name.clone(),
+                self.env().caller(),
+                years_to_register,
+                referrer,
+                merkle_proof,
+            )?;
             if set_as_primary_domain {
                 self.set_primary_domain(name)?;
             }
@@ -331,11 +340,13 @@ mod azns_registry {
                 return Err(Error::NotAuthorised);
             }
 
-            self.register_domain(&name, &caller).and_then(|_| {
-                // Remove the domain from the list once claimed
-                self.reserved_names.remove(name);
-                Ok(())
-            })
+            let expiry_time = self.env().block_timestamp() + YEAR;
+            self.register_domain(&name, &caller, expiry_time)
+                .and_then(|_| {
+                    // Remove the domain from the list once claimed
+                    self.reserved_names.remove(name);
+                    Ok(())
+                })
         }
 
         /// Release domain from registration.
@@ -348,14 +359,8 @@ mod azns_registry {
 
             let caller = Self::env().caller();
             self.ensure_owner(&caller, &name)?;
-            let address_dict = self.get_address_dict_ref(&name)?;
 
-            self.name_to_address_dict.remove(&name);
-            self.metadata.remove(&name);
-
-            self.remove_name_from_owner(&address_dict.owner, &name);
-            self.remove_name_from_controller(&address_dict.controller, &name);
-            self.remove_name_from_resolving(&address_dict.resolved, &name);
+            self.remove_name(&name);
 
             Self::env().emit_event(Release { name, from: caller });
 
@@ -399,6 +404,20 @@ mod azns_registry {
             });
 
             Ok(())
+        }
+
+        /// Removes the associated state of expired-domains from storage
+        #[ink(message)]
+        pub fn clear_expired_names(&mut self, names: Vec<String>) -> Result<u128> {
+            let mut count = 0;
+            names.into_iter().for_each(|name| {
+                // Verify the name has expired
+                if self.has_name_expired(&name) == Ok(true) {
+                    self.remove_name(&name);
+                    count += 1;
+                }
+            });
+            Ok(count)
         }
 
         /// Set primary domain of an address (reverse record)
@@ -526,16 +545,20 @@ mod azns_registry {
 
         /// Returns the current status of the domain
         #[ink(message)]
-        pub fn get_domain_status(&self, name: String) -> DomainStatus {
-            if let Some(user) = self.name_to_address_dict.get(&name) {
-                DomainStatus::Registered(user.owner)
-            } else if let Some(user) = self.reserved_names.get(&name) {
-                DomainStatus::Reserved(user)
-            } else if self.is_name_allowed(&name) {
-                DomainStatus::Available
-            } else {
-                DomainStatus::Unavailable
-            }
+        pub fn get_domain_status(&self, names: Vec<String>) -> Vec<DomainStatus> {
+            let status = |name: String| {
+                if let Ok(user) = self.get_address_dict_ref(&name) {
+                    DomainStatus::Registered(user.owner)
+                } else if let Some(user) = self.reserved_names.get(&name) {
+                    DomainStatus::Reserved(user)
+                } else if self.is_name_allowed(&name) {
+                    DomainStatus::Available
+                } else {
+                    DomainStatus::Unavailable
+                }
+            };
+
+            names.into_iter().map(status).collect()
         }
 
         /// Get the addresses related to specific name
@@ -562,34 +585,36 @@ mod azns_registry {
             self.get_address_dict_ref(&name).map(|x| x.resolved)
         }
 
+        #[ink(message)]
+        pub fn get_expiry_date(&self, name: String) -> Result<u64> {
+            self.name_to_expiry.get(&name).ok_or(Error::NameDoesntExist)
+        }
+
         /// Gets all records
         #[ink(message)]
         pub fn get_records(&self, name: String) -> Result<Vec<(String, String)>> {
-            if let Some(info) = self.metadata.get(name) {
-                Ok(info)
-            } else {
-                Err(Error::NoRecordsForAddress)
-            }
+            self.get_metadata_ref(&name)
         }
 
         /// Gets an arbitrary record by key
         #[ink(message)]
         pub fn get_record(&self, name: String, key: String) -> Result<String> {
-            return if let Some(info) = self.metadata.get(name) {
-                if let Some(value) = info.iter().find(|tuple| tuple.0 == key) {
-                    Ok(value.clone().1)
-                } else {
-                    Err(Error::RecordNotFound)
-                }
-            } else {
-                Err(Error::NoRecordsForAddress)
-            };
+            let info = self.get_metadata_ref(&name)?;
+            match info.iter().find(|tuple| tuple.0 == key) {
+                Some(val) => Ok(val.clone().1),
+                None => Err(Error::RecordNotFound),
+            }
         }
 
         /// Returns all names the address owns
         #[ink(message)]
         pub fn get_owned_names_of_address(&self, owner: AccountId) -> Option<Vec<String>> {
-            self.owner_to_names.get(owner)
+            self.owner_to_names.get(owner).map(|names| {
+                names
+                    .into_iter()
+                    .filter(|name| self.has_name_expired(&name) == Ok(false))
+                    .collect()
+            })
         }
 
         #[ink(message)]
@@ -597,12 +622,22 @@ mod azns_registry {
             &self,
             controller: AccountId,
         ) -> Option<Vec<String>> {
-            self.controller_to_names.get(controller)
+            self.controller_to_names.get(controller).map(|names| {
+                names
+                    .into_iter()
+                    .filter(|name| self.has_name_expired(&name) == Ok(false))
+                    .collect()
+            })
         }
 
         #[ink(message)]
         pub fn get_resolving_names_of_address(&self, address: AccountId) -> Option<Vec<String>> {
-            self.resolving_to_address.get(address)
+            self.resolving_to_address.get(address).map(|names| {
+                names
+                    .into_iter()
+                    .filter(|name| self.has_name_expired(&name) == Ok(false))
+                    .collect()
+            })
         }
 
         #[ink(message)]
@@ -614,8 +649,8 @@ mod azns_registry {
             };
 
             /* Check that the primary domain actually resolves to the claimed address */
-            let resolved_address = self.get_address(primary_domain.clone())?;
-            if resolved_address != address {
+            let resolved_address = self.get_address(primary_domain.clone());
+            if resolved_address != Ok(address) {
                 /* Resolved address is no longer valid */
                 return Err(Error::NoResolvedAddress);
             }
@@ -643,6 +678,11 @@ mod azns_registry {
         #[ink(message)]
         pub fn get_metadata_size_limit(&self) -> Option<u32> {
             self.metadata_size_limit
+        }
+
+        #[ink(message)]
+        pub fn get_admin(&self) -> AccountId {
+            self.admin
         }
 
         /// Returns `true` when contract is in whitelist-phase
@@ -681,21 +721,6 @@ mod azns_registry {
             if Self::env().transfer(Self::env().caller(), value).is_err() {
                 return Err(Error::WithdrawFailed);
             }
-
-            Ok(())
-        }
-
-        /// (ADMIN-OPERATION)
-        /// Update the merkle root
-        #[ink(message)]
-        pub fn update_merkle_root(&mut self, new_root: [u8; 32]) -> Result<()> {
-            self.ensure_admin()?;
-
-            let mut address_verifier = self.whitelisted_address_verifier.get_or_default();
-            let Some(verifier) = address_verifier.as_mut() else {
-                return Err(Error::OnlyDuringWhitelistPhase);
-            };
-            verifier.update_root(new_root);
 
             Ok(())
         }
@@ -765,9 +790,16 @@ mod azns_registry {
             Ok(())
         }
 
+        #[ink(message)]
+        pub fn set_admin(&mut self, account: AccountId) -> Result<()> {
+            self.ensure_admin()?;
+            self.admin = account;
+            Ok(())
+        }
+
         fn ensure_admin(&self) -> Result<()> {
             if self.admin != self.env().caller() {
-                Err(Error::CallerIsNotAdmin)
+                Err(Error::NotAdmin)
             } else {
                 Ok(())
             }
@@ -805,14 +837,21 @@ mod azns_registry {
             }
         }
 
-        fn register_domain(&mut self, name: &str, recipient: &AccountId) -> Result<()> {
-            /* Ensure domain is not already registered */
-            if self.name_to_address_dict.contains(name) {
-                return Err(Error::NameAlreadyExists);
+        fn register_domain(
+            &mut self,
+            name: &str,
+            recipient: &AccountId,
+            expiry: u64,
+        ) -> Result<()> {
+            match self.has_name_expired(&name) {
+                Ok(false) => return Err(Error::NameAlreadyExists), // Domain is already registered
+                Ok(true) => self.remove_name(&name), // Clean the expired domain state first
+                _ => (),                             // Domain is available
             }
 
             let address_dict = AddressDict::new(recipient.clone());
             self.name_to_address_dict.insert(name, &address_dict);
+            self.name_to_expiry.insert(name, &expiry);
 
             /* Update convenience mapping for owned domains */
             self.add_name_to_owner(recipient, name);
@@ -830,6 +869,20 @@ mod azns_registry {
             });
 
             Ok(())
+        }
+
+        fn remove_name(&mut self, name: &str) {
+            let Ok(address_dict) = self.get_address_dict_ref(&name) else {
+                return;
+            };
+
+            self.name_to_address_dict.remove(name);
+            self.name_to_expiry.remove(name);
+            self.metadata.remove(name);
+
+            self.remove_name_from_owner(&address_dict.owner, &name);
+            self.remove_name_from_controller(&address_dict.controller, &name);
+            self.remove_name_from_resolving(&address_dict.resolved, &name);
         }
 
         /// Adds a name to owners' collection
@@ -893,10 +946,34 @@ mod azns_registry {
             true
         }
 
+        fn get_name_price(&self, name: &str, duration: u8) -> Result<Balance> {
+            match &self.fee_calculator {
+                None => Ok(1000), // For unit testing only
+                Some(model) => model
+                    .get_name_price(name.to_string(), duration)
+                    .map_err(|e| Error::FeeError(e)),
+            }
+        }
+
         fn get_address_dict_ref(&self, name: &str) -> Result<AddressDict> {
             self.name_to_address_dict
                 .get(name)
+                .filter(|_| self.has_name_expired(name) == Ok(false))
                 .ok_or(Error::NameDoesntExist)
+        }
+
+        fn get_metadata_ref(&self, name: &str) -> Result<Vec<(String, String)>> {
+            self.metadata
+                .get(name)
+                .filter(|_| self.has_name_expired(name) == Ok(false))
+                .ok_or(Error::NoRecordsForAddress)
+        }
+
+        fn has_name_expired(&self, name: &str) -> Result<bool> {
+            match self.name_to_expiry.get(name) {
+                Some(expiry) => Ok(expiry <= self.env().block_timestamp()),
+                None => Err(Error::NameDoesntExist),
+            }
         }
     }
 }
@@ -904,7 +981,6 @@ mod azns_registry {
 #[cfg(test)]
 mod tests {
     use super::azns_registry::*;
-    use azns_name_checker::UnicodeRange;
     use ink::codegen::Env;
     use ink::env::test::*;
     use ink::env::DefaultEnvironment;
@@ -924,30 +1000,11 @@ mod tests {
 
     fn get_test_name_service() -> DomainNameService {
         DomainNameService::new(
+            default_accounts().alice,
             None,
             None,
-            [0u8; 32],
             None,
             None,
-            (5, 99),
-            vec![
-                UnicodeRange {
-                    lower: 'a' as u32,
-                    upper: 'z' as u32,
-                },
-                UnicodeRange {
-                    lower: '0' as u32,
-                    upper: '9' as u32,
-                },
-                UnicodeRange {
-                    lower: '-' as u32,
-                    upper: '-' as u32,
-                },
-            ],
-            vec![UnicodeRange {
-                lower: '-' as u32,
-                upper: '-' as u32,
-            }],
             "azero".to_string(),
             None,
         )
@@ -963,14 +1020,23 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name2.clone(), 1, None, None, false),
+            Ok(())
+        );
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name3.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name3.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         /* Now alice owns three domains */
         /* getting all owned domains should return all three */
@@ -990,16 +1056,25 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name2.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         /* Register bar under bob, but set controller to alice */
         set_next_caller(default_accounts.bob);
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name3.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name3.clone(), 1, None, None, false),
+            Ok(())
+        );
         assert_eq!(
             contract.set_controller(name3.clone(), default_accounts.alice),
             Ok(())
@@ -1023,12 +1098,18 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         set_next_caller(default_accounts.charlie);
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name2.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         /* getting all domains should return first only */
         assert_eq!(
@@ -1038,8 +1119,11 @@ mod tests {
 
         /* Register bar under bob, but set resolved address to alice */
         set_next_caller(default_accounts.bob);
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name3.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name3.clone(), 1, None, None, false),
+            Ok(())
+        );
         assert_eq!(
             contract.set_address(name3.clone(), default_accounts.alice),
             Ok(())
@@ -1074,11 +1158,17 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name2.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         /* getting all domains should return first two */
         assert_eq!(
@@ -1088,8 +1178,11 @@ mod tests {
 
         /* Register bar under bob, but set resolved address to alice */
         set_next_caller(default_accounts.bob);
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name3.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name3.clone(), 1, None, None, false),
+            Ok(())
+        );
         assert_eq!(
             contract.set_address(name3.clone(), default_accounts.alice),
             Ok(())
@@ -1122,14 +1215,17 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2, None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(contract.register(name2, 1, None, None, false), Ok(()));
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name3, None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(contract.register(name3, 1, None, None, false), Ok(()));
 
         /* Now alice owns three domains */
         /* Set the primary domain for alice's address to domain 1 */
@@ -1168,16 +1264,19 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
             Some(Vec::from([name.clone()]))
         );
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         assert_eq!(
-            contract.register(name, None, None, false),
+            contract.register(name, 1, None, None, false),
             Err(Error::NameAlreadyExists)
         );
 
@@ -1189,7 +1288,7 @@ mod tests {
             .expect("Failed to reserve domain");
 
         assert_eq!(
-            contract.register(reserved_name, None, None, false),
+            contract.register(reserved_name, 1, None, None, false),
             Err(Error::CannotBuyReservedDomain)
         );
     }
@@ -1202,8 +1301,8 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, true), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(contract.register(name.clone(), 1, None, None, true), Ok(()));
 
         assert_eq!(
             contract.get_primary_domain(default_accounts.alice),
@@ -1221,11 +1320,11 @@ mod tests {
         let mut contract = get_test_name_service();
 
         // Bob registers
-        let fees = 160_u128.pow(12);
+        let fees = 160_u128 * 10_u128.pow(12);
         set_next_caller(default_accounts.bob);
         set_account_balance::<DefaultEnvironment>(default_accounts.bob, fees);
         transfer_in::<DefaultEnvironment>(fees);
-        assert_eq!(contract.register(name, None, None, false), Ok(()));
+        assert_eq!(contract.register(name, 1, None, None, false), Ok(()));
 
         // Alice (admin) withdraws the funds
         set_next_caller(default_accounts.alice);
@@ -1249,13 +1348,13 @@ mod tests {
 
         let _acc_balance_before_transfer: Balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name, None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(contract.register(name, 1, None, None, false), Ok(()));
 
         set_next_caller(default_accounts.bob);
         assert_eq!(
-            contract.withdraw(160_u128.pow(12)),
-            Err(Error::CallerIsNotAdmin)
+            contract.withdraw(160_u128 * 10_u128.pow(12)),
+            Err(Error::NotAdmin)
         );
     }
 
@@ -1268,10 +1367,10 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name, None, None, false), Ok(()));
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name2, None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(contract.register(name, 1, None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(contract.register(name2, 1, None, None, false), Ok(()));
         assert!(contract
             .get_owned_names_of_address(default_accounts.alice)
             .unwrap()
@@ -1290,9 +1389,9 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         assert_eq!(
-            contract.register(name, None, None, false),
+            contract.register(name, 1, None, None, false),
             Err(Error::NameNotAllowed)
         );
     }
@@ -1306,7 +1405,7 @@ mod tests {
     //     set_next_caller(default_accounts.alice);
     //     let mut contract = get_test_name_service();
     //
-    //     set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
+    //     set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
     //     assert_eq!(contract.register(name, None), Err(NameNotAllowed, false));
     // }
 
@@ -1318,10 +1417,13 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         assert_eq!(
-            contract.register(name, None, None, false),
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
+        assert_eq!(
+            contract.register(name, 1, None, None, false),
             Err(Error::NameAlreadyExists)
         );
     }
@@ -1335,7 +1437,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         assert_eq!(
-            contract.register(name, None, None, false),
+            contract.register(name, 1, None, None, false),
             Err(Error::FeeNotPaid)
         );
     }
@@ -1348,8 +1450,11 @@ mod tests {
         set_next_caller(default_accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.alice),
             Ok(())
@@ -1398,8 +1503,11 @@ mod tests {
 
         /* Another account can register again*/
         set_next_caller(default_accounts.bob);
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.bob),
             Ok(())
@@ -1422,8 +1530,10 @@ mod tests {
         set_next_caller(accounts.alice);
 
         let mut contract = get_test_name_service();
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        contract.register(name.clone(), None, None, false).unwrap();
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
 
         // Caller is not controller, `set_address` should fail.
         set_next_caller(accounts.bob);
@@ -1461,8 +1571,11 @@ mod tests {
         set_next_caller(accounts.alice);
 
         let mut contract = get_test_name_service();
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         // Caller is not controller, `set_address` should fail.
         set_next_caller(accounts.bob);
@@ -1485,8 +1598,11 @@ mod tests {
         set_next_caller(accounts.alice);
 
         let mut contract = get_test_name_service();
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
-        assert_eq!(contract.register(name.clone(), None, None, false), Ok(()));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         // Test transfer of owner.
         assert_eq!(contract.transfer(name.clone(), accounts.bob), Ok(()));
@@ -1530,9 +1646,9 @@ mod tests {
         set_next_caller(accounts.alice);
         let mut contract = get_test_name_service();
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         assert_eq!(
-            contract.register(domain_name.clone(), None, None, false),
+            contract.register(domain_name.clone(), 1, None, None, false),
             Ok(())
         );
 
@@ -1584,7 +1700,7 @@ mod tests {
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
         assert_eq!(
-            contract.register(domain_name.clone(), None, None, false),
+            contract.register(domain_name.clone(), 1, None, None, false),
             Ok(())
         );
 
@@ -1636,7 +1752,9 @@ mod tests {
         assert_eq!(contract.get_metadata_size_limit(), Some(40));
 
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
-        contract.register(name.clone(), None, None, false).unwrap();
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
 
         // With current input, both records cannot be stored simultaneously
         assert_eq!(
@@ -1668,16 +1786,13 @@ mod tests {
         assert!(contract.add_reserved_domains(list).is_ok());
 
         assert_eq!(
-            contract.get_domain_status(reserved_name),
-            DomainStatus::Reserved(Some(accounts.alice)),
+            contract.get_domain_status(vec![reserved_name]),
+            vec![DomainStatus::Reserved(Some(accounts.alice))],
         );
 
         // Invocation from non-admin address fails
         set_next_caller(accounts.bob);
-        assert_eq!(
-            contract.add_reserved_domains(vec![]),
-            Err(Error::CallerIsNotAdmin)
-        );
+        assert_eq!(contract.add_reserved_domains(vec![]), Err(Error::NotAdmin));
     }
 
     #[ink::test]
@@ -1690,8 +1805,8 @@ mod tests {
         assert!(contract.add_reserved_domains(list).is_ok());
 
         assert_eq!(
-            contract.get_domain_status(reserved_name.clone()),
-            DomainStatus::Reserved(Some(accounts.alice)),
+            contract.get_domain_status(vec![reserved_name.clone()]),
+            vec![DomainStatus::Reserved(Some(accounts.alice))],
         );
 
         assert!(contract
@@ -1699,15 +1814,15 @@ mod tests {
             .is_ok());
 
         assert_ne!(
-            contract.get_domain_status(reserved_name),
-            DomainStatus::Reserved(Some(accounts.alice)),
+            contract.get_domain_status(vec![reserved_name]),
+            vec![DomainStatus::Reserved(Some(accounts.alice))],
         );
 
         // Invocation from non-admin address fails
         set_next_caller(accounts.bob);
         assert_eq!(
             contract.remove_reserved_domain(vec![]),
-            Err(Error::CallerIsNotAdmin)
+            Err(Error::NotAdmin)
         );
     }
 
@@ -1739,8 +1854,8 @@ mod tests {
         assert!(contract.claim_reserved_domain(name.clone()).is_ok());
 
         assert_eq!(
-            contract.get_domain_status(name),
-            DomainStatus::Registered(accounts.bob),
+            contract.get_domain_status(vec![name]),
+            vec![DomainStatus::Registered(accounts.bob)],
         );
     }
 
@@ -1748,58 +1863,40 @@ mod tests {
     fn get_domain_status_works() {
         let accounts = default_accounts();
         let reserved_list = vec![("bob".to_string(), Some(accounts.bob))];
+
         let mut contract = DomainNameService::new(
+            default_accounts().alice,
             None,
             None,
-            [0u8; 32],
+            None,
             Some(reserved_list),
-            None,
-            (5, 99),
-            vec![
-                UnicodeRange {
-                    lower: 'a' as u32,
-                    upper: 'z' as u32,
-                },
-                UnicodeRange {
-                    lower: '0' as u32,
-                    upper: '9' as u32,
-                },
-                UnicodeRange {
-                    lower: '-' as u32,
-                    upper: '-' as u32,
-                },
-            ],
-            vec![UnicodeRange {
-                lower: '-' as u32,
-                upper: '-' as u32,
-            }],
             "azero".to_string(),
             None,
         );
 
-        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         contract
-            .register("alice".to_string(), None, None, false)
+            .register("alice".to_string(), 1, None, None, false)
             .expect("failed to register domain");
 
         assert_eq!(
-            contract.get_domain_status("alice".to_string()),
-            DomainStatus::Registered(accounts.alice)
+            contract.get_domain_status(vec!["alice".to_string()]),
+            vec![DomainStatus::Registered(accounts.alice)]
         );
 
         assert_eq!(
-            contract.get_domain_status("bob".to_string()),
-            DomainStatus::Reserved(Some(accounts.bob))
+            contract.get_domain_status(vec!["bob".to_string()]),
+            vec![DomainStatus::Reserved(Some(accounts.bob))]
         );
 
         assert_eq!(
-            contract.get_domain_status("david".to_string()),
-            DomainStatus::Available
+            contract.get_domain_status(vec!["david".to_string()]),
+            vec![DomainStatus::Available]
         );
 
         assert_eq!(
-            contract.get_domain_status("".to_string()),
-            DomainStatus::Unavailable
+            contract.get_domain_status(vec!["".to_string()]),
+            vec![DomainStatus::Unavailable]
         );
     }
 
@@ -1821,7 +1918,7 @@ mod tests {
         set_callee::<DefaultEnvironment>(contract.env().account_id());
         transfer_in::<DefaultEnvironment>(fees);
         assert_eq!(
-            contract.register(alice.clone(), Some(bob.clone()), None, false),
+            contract.register(alice.clone(), 1, Some(bob.clone()), None, false),
             Ok(())
         );
 
@@ -1837,7 +1934,7 @@ mod tests {
         set_next_caller(default_accounts.bob);
         set_account_balance::<DefaultEnvironment>(default_accounts.bob, fees);
         transfer_in::<DefaultEnvironment>(fees - discount);
-        assert_eq!(contract.register(bob, Some(alice), None, false), Ok(()));
+        assert_eq!(contract.register(bob, 1, Some(alice), None, false), Ok(()));
 
         let alice_balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
@@ -1849,6 +1946,182 @@ mod tests {
 
         // Affiliation payment to alice
         assert_eq!(alice_balance, 50);
+    }
+
+    #[ink::test]
+    fn self_referral_not_allowed() {
+        let default_accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        set_callee::<DefaultEnvironment>(default_accounts.eve);
+        assert_eq!(contract.env().account_id(), default_accounts.eve);
+
+        let alice = "alice".to_string();
+        let wonderland = "wonderland".to_string();
+
+        // 1. Register first name without referrer
+        let fees = 1000;
+        set_next_caller(default_accounts.alice);
+        set_account_balance::<DefaultEnvironment>(default_accounts.alice, fees);
+        set_callee::<DefaultEnvironment>(contract.env().account_id());
+        transfer_in::<DefaultEnvironment>(fees);
+        assert_eq!(
+            contract.register(alice.clone(), 1, None, None, false),
+            Ok(())
+        );
+
+        // 2. Self-referral doesn't work
+        set_account_balance::<DefaultEnvironment>(default_accounts.alice, fees);
+        transfer_in::<DefaultEnvironment>(fees);
+        assert_eq!(
+            contract.register(wonderland, 1, Some(alice), None, false),
+            Ok(())
+        );
+
+        let alice_balance =
+            get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
+
+        // No bonus received by alice
+        assert_eq!(alice_balance, 0);
+    }
+
+    #[ink::test]
+    fn name_expiry_works() {
+        let mut contract = get_test_name_service();
+
+        let name1 = "one-year".to_string();
+        let name2 = "two-year".to_string();
+
+        // Register name1 for one year
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
+
+        // Register name2 for two years
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name2.clone(), 2, None, None, false)
+            .unwrap();
+
+        // (for cfg(test)) block_time = 6, year = 60
+        for _ in 0..10 {
+            advance_block::<DefaultEnvironment>();
+        }
+
+        assert_eq!(
+            contract.get_domain_status(vec![name1.clone(), name2.clone()]),
+            vec![
+                DomainStatus::Available,
+                DomainStatus::Registered(default_accounts().alice)
+            ]
+        );
+
+        assert_eq!(
+            contract.get_primary_domain(default_accounts().alice),
+            Err(Error::NoResolvedAddress)
+        );
+
+        assert_eq!(
+            contract.get_records(name1.clone()),
+            Err(Error::NoRecordsForAddress)
+        );
+
+        // Reverse mapping implicitly excludes expired names
+        assert_eq!(
+            contract.get_names_of_address(default_accounts().alice),
+            vec![name2.clone()]
+        );
+    }
+
+    #[ink::test]
+    fn clear_expired_names_works() {
+        let mut contract = get_test_name_service();
+
+        let name1 = "one-year".to_string();
+        let name2 = "two-year".to_string();
+
+        // Register name1 for one year
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
+
+        // Register name2 for two years
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name2.clone(), 2, None, None, false)
+            .unwrap();
+
+        // (for cfg(test)) block_time = 6, year = 60
+        for _ in 0..10 {
+            advance_block::<DefaultEnvironment>();
+        }
+
+        // Only the expired names are cleared
+        assert_eq!(
+            contract.clear_expired_names(vec![name1.clone(), name2.clone()]),
+            Ok(1)
+        );
+
+        assert_eq!(
+            contract.get_domain_status(vec![name1.clone(), name2.clone()]),
+            vec![
+                DomainStatus::Available,
+                DomainStatus::Registered(default_accounts().alice)
+            ]
+        );
+    }
+
+    #[ink::test]
+    fn register_expired_names_works() {
+        let mut contract = get_test_name_service();
+
+        let name1 = "one-year".to_string();
+        let name2 = "two-year".to_string();
+
+        // Register name1 for one year
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
+
+        // Register name2 for two years
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name2.clone(), 2, None, None, false)
+            .unwrap();
+
+        // Registering an active name causes error
+        set_next_caller(default_accounts().bob);
+        assert_eq!(
+            contract.register(name1.clone(), 1, None, None, false),
+            Err(Error::NameAlreadyExists)
+        );
+
+        // (for cfg(test)) block_time = 6, year = 60
+        for _ in 0..10 {
+            advance_block::<DefaultEnvironment>();
+        }
+
+        // Registering an expired name works
+        assert_eq!(
+            contract.register(name1.clone(), 1, None, None, false),
+            Ok(())
+        );
+    }
+
+    #[ink::test]
+    fn set_admin_works() {
+        let accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        assert_eq!(contract.get_admin(), accounts.alice);
+        assert_eq!(contract.set_admin(accounts.bob), Ok(()));
+        assert_eq!(contract.get_admin(), accounts.bob);
+
+        // Now alice (not admin anymore) cannot update admin
+        assert_eq!(contract.set_admin(accounts.alice), Err(Error::NotAdmin));
     }
 
     // TODO Need cross-contract test support

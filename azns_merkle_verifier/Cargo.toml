@@ -1,24 +1,32 @@
 [package]
-name = "azns_name_checker"
-version = "0.0.1"
+name = "azns_merkle_verifier"
+version = "0.1.0"
 authors = ["AZERO Domains <hello@azero.domains>"]
 edition = "2021"
-publish = false
 
 [dependencies]
 ink = { version = "4.0.0-rc", default-features = false }
 
 scale = { package = "parity-scale-codec", version = "3", default-features = false, features = ["derive"] }
 scale-info = { version = "2.3", default-features = false, features = ["derive"], optional = true }
-unic-emoji-char = "0.9.0"
-unicode-segmentation = "1.10.1"
+
+hex = { version = "0.4.3", default-features = false }
 
 [lib]
-name = "azns_name_checker"
+name = "azns_merkle_verifier"
 path = "lib.rs"
-crate-type = ["cdylib", "rlib"]
+crate-type = [
+	# Used for normal contract Wasm blobs.
+	"cdylib",
+    "rlib",
+]
 
 [features]
 default = ["std"]
-std = ["ink/std", "scale/std", "scale-info/std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+    "hex/std"
+]
 ink-as-dependency = []
