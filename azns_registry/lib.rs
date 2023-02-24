@@ -6,7 +6,6 @@ mod address_dict;
 mod azns_registry {
     use crate::address_dict::AddressDict;
     use ink::env::hash::CryptoHash;
-    use ink::prelude::borrow::ToOwned;
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec;
     use ink::prelude::vec::Vec;
@@ -168,7 +167,7 @@ mod azns_registry {
             allowed_length: (u8, u8),
             allowed_unicode_ranges: Vec<UnicodeRange>,
             disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
-            tld: Option<String>,
+            tld: String,
         ) -> Self {
             let caller = Self::env().caller();
 
@@ -197,11 +196,6 @@ mod azns_registry {
                     .instantiate()
             });
 
-            let actual_tld = match tld {
-                Some(tld) => tld,
-                None => "azero".to_owned(),
-            };
-
             let mut contract = Self {
                 admin: caller,
                 name_checker,
@@ -213,7 +207,7 @@ mod azns_registry {
                 resolving_to_address: Default::default(),
                 whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
-                tld: actual_tld,
+                tld,
             };
 
             // Initialize address verifier
@@ -504,16 +498,6 @@ mod azns_registry {
 
             Ok(())
         }
-
-        // fn log_size_of_mapping<K, V: Packed>(&self, mapping: Mapping<K, V>) -> u64 {
-        //     let mut size = 0;
-        //     for (_, value) in mapping.iter() {
-        //         size += value.len();
-        //     }
-        //     // Assume a constant overhead of 32 bytes per entry in the mapping.
-        //     size += 32 * mapping.len();
-        //     size
-        // }
 
         fn update_metadata(
             &self,
@@ -943,7 +927,7 @@ mod tests {
                 lower: '-' as u32,
                 upper: '-' as u32,
             }],
-            None,
+            "azero".to_string(),
         )
     }
 
@@ -1733,7 +1717,7 @@ mod tests {
                 lower: '-' as u32,
                 upper: '-' as u32,
             }],
-            None,
+            "azero".to_string(),
         );
 
         set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
