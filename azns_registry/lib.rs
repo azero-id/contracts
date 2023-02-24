@@ -100,6 +100,7 @@ mod azns_registry {
         name_to_expiry: Mapping<String, u64>,
         /// Metadata
         metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
+        metadata_size_limit: Option<u32>,
 
         /// All names an address owns
         owner_to_names: Mapping<AccountId, Vec<String>, ManualKey<300>>,
@@ -114,6 +115,9 @@ mod azns_registry {
 
         /// Merkle Verifier used to identifiy whitelisted addresses
         whitelisted_address_verifier: Lazy<Option<MerkleVerifierRef>, ManualKey<999>>,
+
+        /// TLD
+        tld: String,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -158,6 +162,8 @@ mod azns_registry {
         NotReservedDomain,
         /// User is not authorised to claim the given domain
         NotAuthorised,
+        /// Metadata size limit exceeded
+        MetadataOverflow,
         /// Thrown when fee_calculator doesn't return a names' price
         FeeError(azns_fee_calculator::Error),
     }
@@ -171,6 +177,8 @@ mod azns_registry {
             fee_calculator_addr: Option<AccountId>,
             merkle_verifier_addr: Option<AccountId>,
             reserved_domains: Option<Vec<(String, Option<AccountId>)>>,
+            tld: String,
+            metadata_size_limit: Option<u32>,
         ) -> Self {
             // Initializing NameChecker
             let name_checker = name_checker_addr.map(|addr| NameCheckerRef::from_account_id(addr));
@@ -196,6 +204,8 @@ mod azns_registry {
                 resolving_to_address: Default::default(),
                 whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
+                tld,
+                metadata_size_limit,
             };
 
             // Initialize address verifier
@@ -383,6 +393,9 @@ mod azns_registry {
             self.add_name_to_controller(&to, &name);
             self.add_name_to_resolving(&to, &name);
 
+            /* Clear metadata */
+            self.metadata.remove(&name);
+
             Self::env().emit_event(Transfer {
                 name,
                 from: caller,
@@ -486,9 +499,48 @@ mod azns_registry {
             let caller: AccountId = Self::env().caller();
             self.ensure_controller(&caller, &name)?;
 
-            self.metadata.insert(name, &records);
+            self.metadata.insert(&name, &records);
 
-            Ok(())
+            self.ensure_metadata_under_limit(&name)
+        }
+
+        /// Sets one record
+        #[ink(message)]
+        pub fn set_record(&mut self, name: String, record: (String, String)) -> Result<()> {
+            /* Ensure that the caller is a controller */
+            let caller: AccountId = Self::env().caller();
+            self.ensure_controller(&caller, &name)?;
+
+            let metadata = self.metadata.get(&name).unwrap_or_default();
+            let updated_metadata = self.update_metadata(metadata, &record.0, &record.1);
+            self.metadata.insert(&name, &updated_metadata);
+
+            self.ensure_metadata_under_limit(&name)
+        }
+
+        fn update_metadata(
+            &self,
+            metadata: Vec<(String, String)>,
+            key: &str,
+            value: &str,
+        ) -> Vec<(String, String)> {
+            let mut found = false;
+            let mut updated_metadata: Vec<(String, String)> = metadata
+                .into_iter()
+                .map(|(k, v)| {
+                    if k == key {
+                        found = true;
+                        (k, value.to_string())
+                    } else {
+                        (k, v)
+                    }
+                })
+                .collect();
+
+            if !found {
+                updated_metadata.push((key.to_string(), value.to_string()));
+            }
+            updated_metadata
         }
 
         /// Returns the current status of the domain
@@ -540,13 +592,13 @@ mod azns_registry {
 
         /// Gets all records
         #[ink(message)]
-        pub fn get_metadata(&self, name: String) -> Result<Vec<(String, String)>> {
+        pub fn get_records(&self, name: String) -> Result<Vec<(String, String)>> {
             self.get_metadata_ref(&name)
         }
 
         /// Gets an arbitrary record by key
         #[ink(message)]
-        pub fn get_metadata_by_key(&self, name: String, key: String) -> Result<String> {
+        pub fn get_record(&self, name: String, key: String) -> Result<String> {
             let info = self.get_metadata_ref(&name)?;
             match info.iter().find(|tuple| tuple.0 == key) {
                 Some(val) => Ok(val.clone().1),
@@ -621,6 +673,11 @@ mod azns_registry {
                     .collect();
 
             set.into_iter().collect()
+        }
+
+        #[ink(message)]
+        pub fn get_metadata_size_limit(&self) -> Option<u32> {
+            self.metadata_size_limit
         }
 
         #[ink(message)]
@@ -708,6 +765,15 @@ mod azns_registry {
         }
 
         /// (ADMIN-OPERATION)
+        /// Update the limit of metadata allowed to store per name
+        #[ink(message)]
+        pub fn set_metadata_size_limit(&mut self, limit: Option<u32>) -> Result<()> {
+            self.ensure_admin()?;
+            self.metadata_size_limit = limit;
+            Ok(())
+        }
+
+        /// (ADMIN-OPERATION)
         /// Upgrade contract code
         #[ink(message)]
         pub fn upgrade_contract(&mut self, code_hash: [u8; 32]) -> Result<()> {
@@ -758,6 +824,16 @@ mod azns_registry {
                 Err(Error::CallerIsNotController)
             } else {
                 Ok(())
+            }
+        }
+
+        fn ensure_metadata_under_limit(&self, name: &str) -> Result<()> {
+            let size = self.metadata.size(name).unwrap_or(0);
+            let limit = self.metadata_size_limit.unwrap_or(u32::MAX);
+
+            match size <= limit {
+                true => Ok(()),
+                false => Err(Error::MetadataOverflow),
             }
         }
 
@@ -923,7 +999,15 @@ mod tests {
     }
 
     fn get_test_name_service() -> DomainNameService {
-        DomainNameService::new(default_accounts().alice, None, None, None, None)
+        DomainNameService::new(
+            default_accounts().alice,
+            None,
+            None,
+            None,
+            None,
+            "azero".to_string(),
+            None,
+        )
     }
 
     #[ink::test]
@@ -1574,7 +1658,7 @@ mod tests {
         );
         assert_eq!(
             contract
-                .get_metadata_by_key(domain_name.clone(), key.clone())
+                .get_record(domain_name.clone(), key.clone())
                 .unwrap(),
             value
         );
@@ -1585,9 +1669,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract
-                .get_metadata_by_key(domain_name.clone(), key)
-                .unwrap(),
+            contract.get_record(domain_name.clone(), key).unwrap(),
             value
         );
 
@@ -1600,8 +1682,96 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract.get_metadata(domain_name).unwrap(),
+            contract.get_records(domain_name).unwrap(),
             Vec::from([("twitter".to_string(), "@newtest".to_string())])
+        );
+    }
+
+    #[ink::test]
+    fn set_record_works() {
+        let accounts = default_accounts();
+        let key = String::from("twitter");
+        let value = String::from("@test");
+
+        let domain_name = "test".to_string();
+
+        set_next_caller(accounts.alice);
+        let mut contract = get_test_name_service();
+
+        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
+        assert_eq!(
+            contract.register(domain_name.clone(), 1, None, None, false),
+            Ok(())
+        );
+
+        assert_eq!(
+            contract.set_record(domain_name.clone(), (key.clone(), value.clone())),
+            Ok(())
+        );
+        assert_eq!(
+            contract
+                .get_record(domain_name.clone(), key.clone())
+                .unwrap(),
+            value
+        );
+
+        /* Confirm idempotency */
+        assert_eq!(
+            contract.set_record(domain_name.clone(), (key.clone(), value.clone())),
+            Ok(())
+        );
+        assert_eq!(
+            contract.get_record(domain_name.clone(), key).unwrap(),
+            value
+        );
+
+        /* Confirm overwriting */
+        assert_eq!(
+            contract.set_record(
+                domain_name.clone(),
+                ("twitter".to_string(), "@newtest".to_string()),
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            contract.get_records(domain_name).unwrap(),
+            Vec::from([("twitter".to_string(), "@newtest".to_string())])
+        );
+    }
+
+    #[ink::test]
+    fn metadata_limit_works() {
+        let mut contract = get_test_name_service();
+        let name = "alice".to_string();
+        let records = vec![
+            ("@twitter".to_string(), "alice_musk".to_string()),
+            ("@facebook".to_string(), "alice_zuk".to_string()),
+        ];
+
+        contract.set_metadata_size_limit(Some(40)).unwrap();
+        assert_eq!(contract.get_metadata_size_limit(), Some(40));
+
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+
+        // With current input, both records cannot be stored simultaneously
+        assert_eq!(
+            contract.set_all_records(name.clone(), records.clone()),
+            Err(Error::MetadataOverflow)
+        );
+
+        // Storing only one works
+        assert_eq!(
+            contract.set_all_records(name.clone(), records[0..1].to_vec()),
+            Ok(())
+        );
+
+        // Adding the second record fails
+        assert_eq!(
+            contract.set_record(name.clone(), records[1].clone()),
+            Err(Error::MetadataOverflow),
         );
     }
 
@@ -1700,6 +1870,8 @@ mod tests {
             None,
             None,
             Some(reserved_list),
+            "azero".to_string(),
+            None,
         );
 
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
@@ -1851,7 +2023,7 @@ mod tests {
         );
 
         assert_eq!(
-            contract.get_metadata(name1.clone()),
+            contract.get_records(name1.clone()),
             Err(Error::NoRecordsForAddress)
         );
 
