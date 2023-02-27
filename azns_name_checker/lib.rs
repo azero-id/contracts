@@ -7,7 +7,7 @@ extern crate unicode_segmentation;
 
 /// Contains the bounds of a Unicode range, with each bound representing a Unicode character
 /// Used to check whether a certain character is allowed by specifying allowed ranges, such as a-z etc.
-#[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode, Clone)]
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub struct UnicodeRange {
     pub lower: u32,
@@ -16,8 +16,6 @@ pub struct UnicodeRange {
 
 #[ink::contract]
 mod azns_name_checker {
-    use crate::azns_name_checker::Error::{TooLong, TooShort};
-
     use crate::UnicodeRange;
     use ink::prelude::string::String;
     use ink::prelude::vec;
@@ -70,8 +68,8 @@ mod azns_name_checker {
             let len = domain.chars().count() as u64;
 
             match len {
-                l if l > max as u64 => return Err(TooLong),
-                l if l < min as u64 => return Err(TooShort),
+                l if l > max as u64 => return Err(Error::TooLong),
+                l if l < min as u64 => return Err(Error::TooShort),
                 _ => (),
             }
 
@@ -113,6 +111,26 @@ mod azns_name_checker {
         }
 
         #[ink(message)]
+        pub fn get_admin(&self) -> AccountId {
+            self.admin
+        }
+
+        #[ink(message)]
+        pub fn get_allowed_unicode_ranges(&self) -> Vec<UnicodeRange> {
+            self.allowed_unicode_ranges.clone()
+        }
+
+        #[ink(message)]
+        pub fn get_disallowed_unicode_ranges_for_edges(&self) -> Vec<UnicodeRange> {
+            self.disallowed_unicode_ranges_for_edges.clone()
+        }
+
+        #[ink(message)]
+        pub fn get_allowed_length(&self) -> (Min, Max) {
+            self.allowed_length
+        }
+
+        #[ink(message)]
         pub fn set_allowed_unicode_ranges(&mut self, new_ranges: Vec<UnicodeRange>) -> Result<()> {
             self.ensure_admin()?;
             self.allowed_unicode_ranges = new_ranges;
@@ -134,11 +152,6 @@ mod azns_name_checker {
             self.ensure_admin()?;
             self.allowed_length = new_length;
             Ok(())
-        }
-
-        #[ink(message)]
-        pub fn get_admin(&self) -> AccountId {
-            self.admin
         }
 
         #[ink(message)]
