@@ -161,6 +161,21 @@ mod azns_name_checker {
             Ok(())
         }
 
+        #[ink(message)]
+        pub fn upgrade_contract(&mut self, code_hash: [u8; 32]) -> Result<()> {
+            self.ensure_admin()?;
+
+            ink::env::set_code_hash(&code_hash).unwrap_or_else(|err| {
+                panic!(
+                    "Failed to `set_code_hash` to {:?} due to {:?}",
+                    code_hash, err
+                )
+            });
+            ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
+
+            Ok(())
+        }
+
         fn ensure_admin(&self) -> Result<()> {
             match self.env().caller() == self.admin {
                 true => Ok(()),
