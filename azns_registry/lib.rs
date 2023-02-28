@@ -217,6 +217,12 @@ mod azns_registry {
             if let Some(set) = reserved_domains {
                 contract.add_reserved_domains(set).expect("Infallible");
             }
+
+            // No Whitelist phase
+            if merkle_verifier_addr == None {
+                Self::env().emit_event(PublicPhaseActivated {});
+            }
+
             contract
         }
 
