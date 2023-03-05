@@ -1,3 +1,4 @@
+import { BN } from '@polkadot/util'
 import { deployContract } from '@scio-labs/use-inkathon'
 import { DeployFn } from '../utils/DeployFn.type'
 import { getDeploymentData } from '../utils/getDeploymentData'
@@ -11,6 +12,8 @@ export type RegistryArgs = {
   aznsFeeCalculatorAddress: string
   aznsMerkleVerifierAddress: string
   reservedNames: [string, string][] // [name, address | null][]
+  tld: string
+  metadataSizeLimit: BN
 }
 export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, customArgs) => {
   const args = Object.assign(
@@ -20,6 +23,8 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
       aznsFeeCalculatorAddress: null,
       aznsMerkleVerifierAddress: null,
       reservedNames: [],
+      tld: 'azero',
+      metadataSizeLimit: new BN(16_000),
     } as RegistryArgs,
     customArgs,
   )
@@ -31,5 +36,7 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
     args.aznsFeeCalculatorAddress,
     args.aznsMerkleVerifierAddress,
     args.reservedNames,
+    args.tld,
+    args.metadataSizeLimit,
   ])
 }
