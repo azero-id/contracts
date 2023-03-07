@@ -10,23 +10,30 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    defaults:
-          run:
-            working-directory: ./azns_registry
+  build_and_test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - contract build
+          - test
+    env:
+      CONTRACTS: "azns_registry azns_fee_calculator azns_name_checker azns_merkle_verifier"
 
     steps:
     - uses: actions/checkout@v3
-    - uses: Swatinem/rust-cache@v2
+    - uses: Swatinem/rust-cache@v2.2.0
     - run: rustup toolchain install stable --profile minimal
     - name: Install rust-src
       run: rustup component add rust-src
     - name: Install dylint-link
       run: cargo install dylint-link
     - name: Install Cargo Contract
-      run: cargo install cargo-contract --force --locked --version 2.0.0-rc.1
-    - name: Build
-      run: cargo contract build --verbose
-    - name: Run tests
-      run: cargo contract test --verbose
+      run: cargo install cargo-contract --force --locked --version 2.0.1
+    - name: Run ${{ matrix.job }}
+      run: |
+        for contract in ${CONTRACTS}; do
+          echo "Processing contract: $contract";
+          cargo ${{ matrix.job }} --verbose --manifest-path=$contract/Cargo.toml;
+        done
