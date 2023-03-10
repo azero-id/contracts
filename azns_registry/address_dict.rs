@@ -1,10 +1,10 @@
 use ink::primitives::AccountId;
 
 /// Stores the addresses relevant to a domain name
-#[derive(scale::Encode, scale::Decode)]
+#[derive(scale::Encode, scale::Decode, PartialEq)]
 #[cfg_attr(
     feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout, Debug)
 )]
 pub struct AddressDict {
     pub owner: AccountId,

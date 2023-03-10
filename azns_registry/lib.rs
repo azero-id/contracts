@@ -27,8 +27,8 @@ mod azns_registry {
     #[derive(scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, Debug, PartialEq))]
     pub enum DomainStatus {
-        /// Domain is registered by the given address
-        Registered(AccountId),
+        /// Domain is registered with the given AddressDict
+        Registered(AddressDict),
         /// Domain is reserved for the given address
         Reserved(Option<AccountId>),
         /// Domain is available for purchase
@@ -554,7 +554,7 @@ mod azns_registry {
         pub fn get_domain_status(&self, names: Vec<String>) -> Vec<DomainStatus> {
             let status = |name: String| {
                 if let Ok(user) = self.get_address_dict_ref(&name) {
-                    DomainStatus::Registered(user.owner)
+                    DomainStatus::Registered(user)
                 } else if let Some(user) = self.reserved_names.get(&name) {
                     DomainStatus::Reserved(user)
                 } else if self.is_name_allowed(&name) {
@@ -987,6 +987,7 @@ mod azns_registry {
 #[cfg(test)]
 mod tests {
     use super::azns_registry::*;
+    use crate::address_dict::AddressDict;
     use ink::codegen::Env;
     use ink::env::test::*;
     use ink::env::DefaultEnvironment;
@@ -1859,9 +1860,10 @@ mod tests {
         set_next_caller(accounts.bob);
         assert!(contract.claim_reserved_domain(name.clone()).is_ok());
 
+        let address_dict = AddressDict::new(accounts.bob);
         assert_eq!(
             contract.get_domain_status(vec![name]),
-            vec![DomainStatus::Registered(accounts.bob)],
+            vec![DomainStatus::Registered(address_dict)],
         );
     }
 
@@ -1885,9 +1887,10 @@ mod tests {
             .register("alice".to_string(), 1, None, None, false)
             .expect("failed to register domain");
 
+        let address_dict = AddressDict::new(accounts.alice);
         assert_eq!(
             contract.get_domain_status(vec!["alice".to_string()]),
-            vec![DomainStatus::Registered(accounts.alice)]
+            vec![DomainStatus::Registered(address_dict)]
         );
 
         assert_eq!(
@@ -2015,11 +2018,12 @@ mod tests {
             advance_block::<DefaultEnvironment>();
         }
 
+        let address_dict = AddressDict::new(default_accounts().alice);
         assert_eq!(
             contract.get_domain_status(vec![name1.clone(), name2.clone()]),
             vec![
                 DomainStatus::Available,
-                DomainStatus::Registered(default_accounts().alice)
+                DomainStatus::Registered(address_dict)
             ]
         );
 
@@ -2070,11 +2074,12 @@ mod tests {
             Ok(1)
         );
 
+        let address_dict = AddressDict::new(default_accounts().alice);
         assert_eq!(
             contract.get_domain_status(vec![name1.clone(), name2.clone()]),
             vec![
                 DomainStatus::Available,
-                DomainStatus::Registered(default_accounts().alice)
+                DomainStatus::Registered(address_dict)
             ]
         );
     }
