@@ -248,13 +248,6 @@ mod azns_registry {
                 return Err(Error::CannotBuyReservedDomain);
             }
 
-            // Call the domain-price function
-            let domain_price = self.get_name_price(&name, years_to_register)?;
-            // Discount as a part of referral-system
-            let mut discount: Balance = 0;
-            // Affiliate Address
-            let mut affiliate: Option<AccountId> = None;
-
             // If in whitelist-phase; Verify that the caller is whitelisted
             if self.is_whitelist_phase() {
                 let caller = self.env().caller();
@@ -273,25 +266,15 @@ mod azns_registry {
                 if !self.verify_proof(caller, merkle_proof) {
                     return Err(Error::InvalidMerkleProof);
                 }
-            } else {
-                // Referral system is active only after whitelist-phase is over
-                if let Some(referrer_name) = referrer {
-                    let address_dict = self.get_address_dict_ref(&referrer_name);
-                    if let Ok(x) = address_dict {
-                        if recipient != x.owner
-                            && recipient != x.controller
-                            && recipient != x.resolved
-                        {
-                            affiliate = Some(x.resolved);
-                            discount = 5 * domain_price / 100; // 5% discount
-                        }
-                    }
-                }
             }
 
+            let (base_price, premium, discount, affiliate) =
+                self.get_name_price(name.clone(), recipient, years_to_register, referrer)?;
+            let price = base_price + premium - discount;
+
             /* Make sure the register is paid for */
-            let _transferred = Self::env().transferred_value();
-            if _transferred < domain_price - discount {
+            let _transferred = self.env().transferred_value();
+            if _transferred < price {
                 return Err(Error::FeeNotPaid);
             }
 
@@ -952,14 +935,41 @@ mod azns_registry {
             true
         }
 
-        fn get_name_price(&self, name: &str, duration: u8) -> Result<Balance> {
-            match &self.fee_calculator {
-                None => Ok(1000), // For unit testing only
+        #[ink(message)]
+        pub fn get_name_price(
+            &self,
+            name: String,
+            recipient: AccountId,
+            years_to_register: u8,
+            referrer: Option<String>,
+        ) -> Result<(Balance, Balance, Balance, Option<AccountId>)> {
+            let (base_price, premium) = match &self.fee_calculator {
+                None => (1000, 0), // For unit testing only
                 Some(model) => model
-                    .get_name_price(name.to_string(), duration)
-                    .map(|(price, premium)| price + premium)
-                    .map_err(|e| Error::FeeError(e)),
+                    .get_name_price(name.clone(), years_to_register)
+                    .map_err(|e| Error::FeeError(e))?,
+            };
+            let price = base_price + premium;
+            let mut discount = 0;
+            let mut affiliate = None;
+
+            // Only in public phase
+            if !self.is_whitelist_phase() {
+                if let Some(referrer_name) = referrer {
+                    let address_dict = self.get_address_dict_ref(&referrer_name);
+                    if let Ok(x) = address_dict {
+                        if recipient != x.owner
+                            && recipient != x.controller
+                            && recipient != x.resolved
+                        {
+                            affiliate = Some(x.resolved);
+                            discount = 5 * price / 100; // 5% discount
+                        }
+                    }
+                }
             }
+
+            Ok((base_price, premium, discount, affiliate))
         }
 
         fn get_address_dict_ref(&self, name: &str) -> Result<AddressDict> {
