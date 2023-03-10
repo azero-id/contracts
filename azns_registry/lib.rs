@@ -674,6 +674,11 @@ mod azns_registry {
             self.admin
         }
 
+        #[ink(message)]
+        pub fn get_tld(&self) -> String {
+            self.tld.clone()
+        }
+
         /// Returns `true` when contract is in whitelist-phase
         /// and `false` when it is in public-phase
         #[ink(message)]
