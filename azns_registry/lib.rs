@@ -957,6 +957,7 @@ mod azns_registry {
                 None => Ok(1000), // For unit testing only
                 Some(model) => model
                     .get_name_price(name.to_string(), duration)
+                    .map(|(price, premium)| price + premium)
                     .map_err(|e| Error::FeeError(e)),
             }
         }
