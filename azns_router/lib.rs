@@ -2,6 +2,7 @@
 
 #[ink::contract]
 mod azns_router {
+    use ink::prelude::string::String;
     use ink::storage::Mapping;
 
     pub type Result<T> = core::result::Result<T, Error>;
@@ -38,6 +39,8 @@ mod azns_router {
         pub fn add_registry(&mut self, tld: String, registry_addr: AccountId) -> Result<()> {
             self.ensure_admin()?;
 
+            // this is disabled during tests as it is not being supported (tests end up panicking).
+            #[cfg(not(test))]
             if !self.env().is_contract(&registry_addr) {
                 return Err(Error::InvalidRegistryAddress);
             }
@@ -77,5 +80,43 @@ mod azns_router {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use ink::env::test::*;
+        use ink::env::DefaultEnvironment;
+
+        fn default_accounts() -> DefaultAccounts<DefaultEnvironment> {
+            ink::env::test::default_accounts::<DefaultEnvironment>()
+        }
+
+        fn get_test_router() -> Router {
+            let contract_addr: AccountId = AccountId::from([0xFF as u8; 32]);
+            set_callee::<DefaultEnvironment>(contract_addr);
+            Router::new(default_accounts().alice)
+        }
+
+        #[ink::test]
+        fn add_registry_works() {
+            let mut contract = get_test_router();
+
+            let tld = "azero".to_string();
+            let registry_addr = default_accounts().bob;
+
+            assert_eq!(contract.add_registry(tld.clone(), registry_addr), Ok(()));
+            assert_eq!(contract.get_registry(tld.clone()), Some(registry_addr));
+
+            // Adding same tld again fails
+            assert_eq!(
+                contract.add_registry(tld.clone(), registry_addr),
+                Err(Error::TldAlreadyInUse)
+            );
+        }
+
+        #[ink::test]
+        fn set_admin_works() {
+            let mut contract = get_test_router();
+
+            assert_eq!(contract.get_admin(), default_accounts().alice);
+            contract.set_admin(default_accounts().bob).unwrap();
+            assert_eq!(contract.get_admin(), default_accounts().bob);
+        }
     }
 }
