@@ -78,8 +78,9 @@ mod azns_fee_calculator {
             self.max_registration_duration
         }
 
+        // (base_price, premium): (Balance, Balance)
         #[ink(message)]
-        pub fn get_name_price(&self, name: String, duration: u8) -> Result<Balance> {
+        pub fn get_name_price(&self, name: String, duration: u8) -> Result<(Balance, Balance)> {
             ensure!(
                 1 <= duration && duration <= self.max_registration_duration,
                 Error::InvalidDuration
@@ -91,12 +92,12 @@ mod azns_fee_calculator {
                 .get(name.len() as Length)
                 .unwrap_or(self.common_price);
 
-            let mut price = 0;
-            for year in 1..=duration {
-                price += (year as u128) * base_price;
+            let mut premium = 0;
+            for year in 2..=duration {
+                premium += (year as u128) * base_price;
             }
 
-            Ok(price)
+            Ok((base_price, premium))
         }
 
         #[ink(message)]
@@ -233,19 +234,19 @@ mod azns_fee_calculator {
             // Duration: 1
             assert_eq!(
                 contract.get_name_price(name.clone(), 1),
-                Ok(6_u128 * 10_u128.pow(12))
+                Ok((6_u128 * 10_u128.pow(12), 0))
             );
 
             // Duration: 2
             assert_eq!(
                 contract.get_name_price(name.clone(), 2),
-                Ok(18_u128 * 10_u128.pow(12))
+                Ok((6_u128 * 10_u128.pow(12), 12_u128 * 10_u128.pow(12)))
             );
 
             // Duration: 3
             assert_eq!(
                 contract.get_name_price(name.clone(), 3),
-                Ok(36_u128 * 10_u128.pow(12))
+                Ok((6_u128 * 10_u128.pow(12), 30_u128 * 10_u128.pow(12)))
             );
 
             // Duration: 4
