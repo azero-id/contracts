@@ -40,17 +40,25 @@ pnpm i
 pnpm node
 
 # Run script
-pnpm ts-node scripts/merkle_verifier.ts
+pnpm ts-node scripts/testMerkleVerifier.ts
 
 # Run script on other chain
 # NOTE: Make sure to create a `.{chain}.env` environment file (gitignored)
 #       with the `ACCOUNT_URI` you want to use.
 #       Also, chain must be a network-id from here: https://github.com/scio-labs/use-inkathon/blob/main/src/chains.ts.
-CHAIN=alephzero-testnet pnpm ts-node scripts/merkle_verifier.ts
+CHAIN=alephzero-testnet pnpm ts-node scripts/testMerkleVerifier.ts
 ```
 
 ## Deploy
 
-A complete deployment of all contracts is handled by `./scripts/deploy.ts` and can be run via `pnpm deploy`.
+A complete deployment of all contracts is handled by `./scripts/deployAll.ts` and can be run via `pnpm run deploy`.
+
+This is an example of how to build & deploy all contracts into an external directory (e.g. frontend repository):
+
+```bash
+DIR=../frontend/src/deployments pnpm run build # same as `./build-all.sh`
+DIR=../frontend/src/deployments pnpm run deploy # same as `pnpm ts-node scripts/deployAll.ts`
+# DIR=../frontend/src/deployments CHAIN=alephzero-testnet pnpm run deploy
+```
 
 You can also upload & instantiate contracts manually using [Contracts UI](https://contracts-ui.substrate.io/).
