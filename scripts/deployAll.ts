@@ -17,7 +17,7 @@ const main = async () => {
   const chain = getSubstrateChain(process.env.CHAIN || 'development')
   if (!chain) throw new Error(`Chain '${process.env.CHAIN}' not found`)
   const accountUri = process.env.ACCOUNT_URI || '//Alice'
-  const initParams = await initPolkadotJs(chain.rpcUrls, accountUri)
+  const initParams = await initPolkadotJs(chain, accountUri)
 
   // Deploy all contracts
   const { address: aznsNameCheckerAddress } = await deployNameChecker(initParams)

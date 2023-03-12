@@ -11,5 +11,5 @@ export const hashAccountId = (accountId: string) => {
   const keyring = new Keyring({ type: 'sr25519' })
   const pubkey = u8aToHex(keyring.decodeAddress(accountId))
   const hexkey = cryptojs.enc.Hex.parse(pubkey.slice(2))
-  return cryptojs.SHA256(hexkey)
+  return cryptojs.SHA256(hexkey).toString()
 }
