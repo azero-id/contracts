@@ -3,6 +3,7 @@
 #[ink::contract]
 mod azns_router {
     use ink::prelude::string::String;
+    use ink::prelude::vec::Vec;
     use ink::storage::traits::ManualKey;
     use ink::storage::Mapping;
 
@@ -23,8 +24,8 @@ mod azns_router {
         NotAdmin,
         /// Not a contract address
         InvalidRegistryAddress,
-        /// given TLD already points to a registry
-        TldAlreadyInUse,
+        /// Given TLD already points to a registry
+        TldAlreadyInUse(String),
     }
 
     impl Router {
@@ -37,7 +38,7 @@ mod azns_router {
         }
 
         #[ink(message)]
-        pub fn add_registry(&mut self, tld: String, registry_addr: AccountId) -> Result<()> {
+        pub fn add_registry(&mut self, tld: Vec<String>, registry_addr: AccountId) -> Result<()> {
             self.ensure_admin()?;
 
             // this is disabled during tests as it is not being supported (tests end up panicking).
@@ -45,11 +46,14 @@ mod azns_router {
             if !self.env().is_contract(&registry_addr) {
                 return Err(Error::InvalidRegistryAddress);
             }
-            if self.routes.contains(&tld) {
-                return Err(Error::TldAlreadyInUse);
+
+            for i in 0..tld.len() {
+                if self.routes.contains(&tld[i]) {
+                    return Err(Error::TldAlreadyInUse(tld[i].clone()));
+                }
+                self.routes.insert(&tld[i], &registry_addr);
             }
 
-            self.routes.insert(&tld, &registry_addr);
             Ok(())
         }
 
@@ -113,16 +117,19 @@ mod azns_router {
         fn add_registry_works() {
             let mut contract = get_test_router();
 
-            let tld = "azero".to_string();
+            let tld1 = "azero".to_string();
+            let tld2 = "a0".to_string();
+            let tld = vec![tld1.clone(), tld2.clone()];
             let registry_addr = default_accounts().bob;
 
             assert_eq!(contract.add_registry(tld.clone(), registry_addr), Ok(()));
-            assert_eq!(contract.get_registry(tld.clone()), Some(registry_addr));
+            assert_eq!(contract.get_registry(tld1.clone()), Some(registry_addr));
+            assert_eq!(contract.get_registry(tld2), Some(registry_addr));
 
             // Adding same tld again fails
             assert_eq!(
-                contract.add_registry(tld.clone(), registry_addr),
-                Err(Error::TldAlreadyInUse)
+                contract.add_registry(tld, registry_addr),
+                Err(Error::TldAlreadyInUse(tld1.clone()))
             );
         }
 
