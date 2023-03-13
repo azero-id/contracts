@@ -26,6 +26,8 @@ mod azns_router {
         InvalidRegistryAddress,
         /// Given TLD already points to a registry
         TldAlreadyInUse(String),
+        /// Given Tld not found
+        TldNotFound(String),
     }
 
     impl Router {
@@ -50,6 +52,30 @@ mod azns_router {
             for i in 0..tld.len() {
                 if self.routes.contains(&tld[i]) {
                     return Err(Error::TldAlreadyInUse(tld[i].clone()));
+                }
+                self.routes.insert(&tld[i], &registry_addr);
+            }
+
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn update_registry(
+            &mut self,
+            tld: Vec<String>,
+            registry_addr: AccountId,
+        ) -> Result<()> {
+            self.ensure_admin()?;
+
+            // this is disabled during tests as it is not being supported (tests end up panicking).
+            #[cfg(not(test))]
+            if !self.env().is_contract(&registry_addr) {
+                return Err(Error::InvalidRegistryAddress);
+            }
+
+            for i in 0..tld.len() {
+                if !self.routes.contains(&tld[i]) {
+                    return Err(Error::TldNotFound(tld[i].clone()));
                 }
                 self.routes.insert(&tld[i], &registry_addr);
             }
@@ -131,6 +157,29 @@ mod azns_router {
                 contract.add_registry(tld, registry_addr),
                 Err(Error::TldAlreadyInUse(tld1.clone()))
             );
+        }
+
+        #[ink::test]
+        fn update_registry_works() {
+            let mut contract = get_test_router();
+
+            let tld1 = "azero".to_string();
+            let tld2 = "a0".to_string();
+            let tld = vec![tld1.clone(), tld2.clone()];
+            let registry_addr = default_accounts().bob;
+
+            assert_eq!(
+                contract.update_registry(tld.clone(), registry_addr),
+                Err(Error::TldNotFound(tld1.clone()))
+            );
+            assert_eq!(contract.add_registry(tld.clone(), registry_addr), Ok(()));
+
+            let new_registry_addr = default_accounts().django;
+            assert_eq!(
+                contract.update_registry(vec![tld2.clone()], new_registry_addr),
+                Ok(())
+            );
+            assert_eq!(contract.get_registry(tld2), Some(new_registry_addr));
         }
 
         #[ink::test]
