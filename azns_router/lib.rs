@@ -2,7 +2,7 @@
 
 #[ink::contract]
 mod azns_router {
-    use ink::prelude::string::String;
+    use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
     use ink::storage::traits::ManualKey;
     use ink::storage::Mapping;
@@ -28,6 +28,10 @@ mod azns_router {
         TldAlreadyInUse(String),
         /// Given Tld not found
         TldNotFound(String),
+        /// Cannot find the resolved address
+        CouldNotResolveDomain,
+        /// Domain does not contain valid name and/or tld
+        InvalidDomainName,
     }
 
     impl Router {
@@ -88,6 +92,36 @@ mod azns_router {
             self.routes.get(tld)
         }
 
+        #[ink(message, selector = 0xd259f7ba)]
+        pub fn get_address(&self, domain_name: String) -> Result<AccountId> {
+            let (name, tld) = Self::extract_domain(&domain_name)?;
+
+            let registry_addr = self
+                .get_registry(tld.clone())
+                .ok_or(Error::TldNotFound(tld))?;
+
+            match cfg!(test) {
+                true => unimplemented!(
+                    "`invoke_contract()` not being supported (tests end up panicking)"
+                ),
+                false => {
+                    use ink::env::call::{build_call, ExecutionInput, Selector};
+
+                    const GET_ADDRESS_SELECTOR: [u8; 4] = [0xD2, 0x59, 0xF7, 0xBA];
+                    let result = build_call::<Environment>()
+                        .call(registry_addr)
+                        .exec_input(
+                            ExecutionInput::new(Selector::new(GET_ADDRESS_SELECTOR)).push_arg(name),
+                        )
+                        .returns::<core::result::Result<AccountId, u8>>()
+                        .params()
+                        .invoke();
+
+                    result.map_err(|_| Error::CouldNotResolveDomain)
+                }
+            }
+        }
+
         #[ink(message)]
         pub fn get_admin(&self) -> AccountId {
             self.admin
@@ -120,6 +154,25 @@ mod azns_router {
                 true => Ok(()),
                 false => Err(Error::NotAdmin),
             }
+        }
+
+        fn extract_domain(domain_name: &str) -> Result<(String, String)> {
+            let pos = domain_name.rfind('.').ok_or(Error::InvalidDomainName)?;
+
+            let name = domain_name
+                .get(0..pos)
+                .ok_or(Error::InvalidDomainName)?
+                .to_string();
+
+            let tld = domain_name
+                .get(pos + 1..)
+                .ok_or(Error::InvalidDomainName)?
+                .to_string();
+
+            if name.is_empty() || tld.is_empty() {
+                return Err(Error::InvalidDomainName);
+            }
+            Ok((name, tld))
         }
     }
 
@@ -189,6 +242,34 @@ mod azns_router {
             assert_eq!(contract.get_admin(), default_accounts().alice);
             contract.set_admin(default_accounts().bob).unwrap();
             assert_eq!(contract.get_admin(), default_accounts().bob);
+        }
+
+        #[test]
+        fn extract_domain_works() {
+            assert_eq!(
+                Router::extract_domain("alice"),
+                Err(Error::InvalidDomainName)
+            );
+
+            assert_eq!(
+                Router::extract_domain("alice."),
+                Err(Error::InvalidDomainName)
+            );
+
+            assert_eq!(
+                Router::extract_domain(".azero"),
+                Err(Error::InvalidDomainName)
+            );
+
+            assert_eq!(
+                Router::extract_domain("alice.azero"),
+                Ok(("alice".to_string(), "azero".to_string()))
+            );
+
+            assert_eq!(
+                Router::extract_domain("sub.alice.azero"),
+                Ok(("sub.alice".to_string(), "azero".to_string()))
+            );
         }
     }
 }

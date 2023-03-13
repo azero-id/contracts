@@ -569,7 +569,7 @@ mod azns_registry {
         }
 
         /// Get address for specific name.
-        #[ink(message)]
+        #[ink(message, selector = 0xd259f7ba)]
         pub fn get_address(&self, name: String) -> Result<AccountId> {
             self.get_address_dict_ref(&name).map(|x| x.resolved)
         }
