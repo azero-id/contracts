@@ -3,6 +3,7 @@
 #[ink::contract]
 mod azns_router {
     use ink::prelude::string::String;
+    use ink::storage::traits::ManualKey;
     use ink::storage::Mapping;
 
     pub type Result<T> = core::result::Result<T, Error>;
@@ -12,7 +13,7 @@ mod azns_router {
         /// Account allowed to update the state
         admin: AccountId,
         /// Maps TLDs to their registry contract address
-        routes: Mapping<String, AccountId>,
+        routes: Mapping<String, AccountId, ManualKey<100>>,
     }
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -66,6 +67,21 @@ mod azns_router {
         pub fn set_admin(&mut self, account: AccountId) -> Result<()> {
             self.ensure_admin()?;
             self.admin = account;
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn upgrade_contract(&mut self, code_hash: [u8; 32]) -> Result<()> {
+            self.ensure_admin()?;
+
+            ink::env::set_code_hash(&code_hash).unwrap_or_else(|err| {
+                panic!(
+                    "Failed to `set_code_hash` to {:?} due to {:?}",
+                    code_hash, err
+                )
+            });
+            ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
+
             Ok(())
         }
 
