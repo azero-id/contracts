@@ -93,8 +93,8 @@ mod azns_router {
         }
 
         #[ink(message, selector = 0xd259f7ba)]
-        pub fn get_address(&self, domain_name: String) -> Result<AccountId> {
-            let (name, tld) = Self::extract_domain(&domain_name)?;
+        pub fn get_address(&self, domain: String) -> Result<AccountId> {
+            let (name, tld) = Self::extract_domain(&domain)?;
 
             let registry_addr = self
                 .get_registry(tld.clone())
@@ -156,15 +156,15 @@ mod azns_router {
             }
         }
 
-        fn extract_domain(domain_name: &str) -> Result<(String, String)> {
-            let pos = domain_name.rfind('.').ok_or(Error::InvalidDomainName)?;
+        fn extract_domain(domain: &str) -> Result<(String, String)> {
+            let pos = domain.rfind('.').ok_or(Error::InvalidDomainName)?;
 
-            let name = domain_name
+            let name = domain
                 .get(0..pos)
                 .ok_or(Error::InvalidDomainName)?
                 .to_string();
 
-            let tld = domain_name
+            let tld = domain
                 .get(pos + 1..)
                 .ok_or(Error::InvalidDomainName)?
                 .to_string();

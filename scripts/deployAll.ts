@@ -4,6 +4,7 @@ import { deployFeeCalculator } from './deploy/deployFeeCalculator'
 import { deployMerkleVerifierWithWhitelist } from './deploy/deployMerkleVerifier'
 import { deployNameChecker } from './deploy/deployNameChecker'
 import { deployRegistry } from './deploy/deployRegistry'
+import { deployRouter } from './deploy/deployRouter'
 import { initPolkadotJs } from './utils/initPolkadotJs'
 import { writeContractAddresses } from './utils/writeContractAddresses'
 
@@ -30,6 +31,7 @@ const main = async () => {
     aznsFeeCalculatorAddress,
     aznsMerkleVerifierAddress,
   })
+  const { address: aznsRouter } = await deployRouter(initParams)
 
   // Write contract addresses to `{contract}/{network}.ts` files
   await writeContractAddresses(chain.network, {
@@ -37,6 +39,7 @@ const main = async () => {
     azns_fee_calculator: aznsFeeCalculatorAddress,
     azns_merkle_verifier: aznsMerkleVerifierAddress,
     azns_registry: aznsRegistryAddress,
+    azns_router: aznsRouter,
   })
 }
 
