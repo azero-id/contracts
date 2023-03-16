@@ -1,10 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 mod address_dict;
+mod psp34_standard;
 
 #[ink::contract]
 mod azns_registry {
     use crate::address_dict::AddressDict;
+    use crate::psp34_standard::*;
     use ink::env::call::FromAccountId;
     use ink::env::hash::CryptoHash;
     use ink::prelude::string::{String, ToString};
