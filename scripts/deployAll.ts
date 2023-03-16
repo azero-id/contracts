@@ -4,7 +4,7 @@ import { deployFeeCalculator } from './deploy/deployFeeCalculator'
 import { deployMerkleVerifierWithWhitelist } from './deploy/deployMerkleVerifier'
 import { deployNameChecker } from './deploy/deployNameChecker'
 import { deployRegistry } from './deploy/deployRegistry'
-import { deployRouter } from './deploy/deployRouter'
+import { addRegistryToRouter, deployRouter } from './deploy/deployRouter'
 import { initPolkadotJs } from './utils/initPolkadotJs'
 import { writeContractAddresses } from './utils/writeContractAddresses'
 
@@ -21,25 +21,28 @@ const main = async () => {
   const initParams = await initPolkadotJs(chain, accountUri)
 
   // Deploy all contracts
-  const { address: aznsNameCheckerAddress } = await deployNameChecker(initParams)
-  const { address: aznsFeeCalculatorAddress } = await deployFeeCalculator(initParams)
-  const { address: aznsMerkleVerifierAddress } = process.env.WHITELIST
+  const { address: nameCheckerAddress } = await deployNameChecker(initParams)
+  const { address: feeCalculatorAddress } = await deployFeeCalculator(initParams)
+  const { address: merkleVerifierAddress } = process.env.WHITELIST
     ? await deployMerkleVerifierWithWhitelist(initParams)
     : { address: null }
-  const { address: aznsRegistryAddress } = await deployRegistry(initParams, {
-    aznsNameCheckerAddress,
-    aznsFeeCalculatorAddress,
-    aznsMerkleVerifierAddress,
+  const { address: registryAddress } = await deployRegistry(initParams, {
+    nameCheckerAddress,
+    feeCalculatorAddress,
+    merkleVerifierAddress,
   })
-  const { address: aznsRouter } = await deployRouter(initParams)
+  const { address: routerAddress } = await deployRouter(initParams)
+
+  // Add registry to router
+  await addRegistryToRouter(initParams, routerAddress, ['azero', 'a0'], registryAddress)
 
   // Write contract addresses to `{contract}/{network}.ts` files
   await writeContractAddresses(chain.network, {
-    azns_name_checker: aznsNameCheckerAddress,
-    azns_fee_calculator: aznsFeeCalculatorAddress,
-    azns_merkle_verifier: aznsMerkleVerifierAddress,
-    azns_registry: aznsRegistryAddress,
-    azns_router: aznsRouter,
+    azns_name_checker: nameCheckerAddress,
+    azns_fee_calculator: feeCalculatorAddress,
+    azns_merkle_verifier: merkleVerifierAddress,
+    azns_registry: registryAddress,
+    azns_router: routerAddress,
   })
 }
 

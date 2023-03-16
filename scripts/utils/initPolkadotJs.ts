@@ -5,10 +5,13 @@ import { initPolkadotJs as initApi, SubstrateChain } from '@scio-labs/use-inkath
 /**
  * Initialize Polkadot.js API with given RPC & account from given URI.
  */
-export const initPolkadotJs = async (
-  chain: SubstrateChain,
-  uri: string,
-): Promise<{ api: ApiPromise; keyring: Keyring; account: IKeyringPair; decimals: number }> => {
+export type InitParams = {
+  api: ApiPromise
+  keyring: Keyring
+  account: IKeyringPair
+  decimals: number
+}
+export const initPolkadotJs = async (chain: SubstrateChain, uri: string): Promise<InitParams> => {
   // Initialize api
   const { api } = await initApi(chain)
 
