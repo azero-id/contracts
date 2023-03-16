@@ -62,10 +62,10 @@ mod azns_name_checker {
         }
 
         #[ink(message)]
-        pub fn is_name_allowed(&self, domain: String) -> Result<()> {
+        pub fn is_name_allowed(&self, name: String) -> Result<()> {
             /* Check length */
             let (min, max) = self.allowed_length;
-            let len = domain.chars().count() as u64;
+            let len = name.chars().count() as u64;
 
             match len {
                 l if l > max as u64 => return Err(Error::TooLong),
@@ -75,8 +75,8 @@ mod azns_name_checker {
 
             /* Check edges */
             let edges = vec![
-                domain.chars().next().unwrap(),
-                domain.chars().rev().next().unwrap(),
+                name.chars().next().unwrap(),
+                name.chars().rev().next().unwrap(),
             ];
 
             let illegal_edges = edges.iter().any(|char| {
@@ -95,7 +95,7 @@ mod azns_name_checker {
             }
 
             /* Check whole name */
-            let allowed = domain.chars().all(|char| {
+            let allowed = name.chars().all(|char| {
                 self.allowed_unicode_ranges.iter().any(|range| {
                     let lower = range.lower;
                     let upper = range.upper;

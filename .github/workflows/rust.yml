@@ -19,7 +19,7 @@ jobs:
           - contract build
           - test
     env:
-      CONTRACTS: "azns_registry azns_fee_calculator azns_name_checker azns_merkle_verifier"
+      CONTRACTS: "azns_registry azns_fee_calculator azns_name_checker azns_merkle_verifier azns_router"
 
     steps:
     - uses: actions/checkout@v3

@@ -1,3 +1,3 @@
 [workspace]
 
-members = ["azns_merkle_verifier", "azns_registry", "azns_name_checker", "azns_fee_calculator"]
+members = ["azns_merkle_verifier", "azns_registry", "azns_name_checker", "azns_fee_calculator", "azns_router"]

@@ -8,9 +8,9 @@ import { getDeploymentData } from '../utils/getDeploymentData'
  */
 export type RegistryArgs = {
   admin: string
-  aznsNameCheckerAddress: string
-  aznsFeeCalculatorAddress: string
-  aznsMerkleVerifierAddress: string
+  nameCheckerAddress: string
+  feeCalculatorAddress: string
+  merkleVerifierAddress: string
   reservedNames: [string, string][] // [name, address | null][]
   tld: string
   metadataSizeLimit: BN
@@ -19,9 +19,9 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
   const args = Object.assign(
     {
       admin: account.address,
-      aznsNameCheckerAddress: null,
-      aznsFeeCalculatorAddress: null,
-      aznsMerkleVerifierAddress: null,
+      nameCheckerAddress: null,
+      feeCalculatorAddress: null,
+      merkleVerifierAddress: null,
       reservedNames: [],
       tld: 'azero',
       metadataSizeLimit: new BN(16_000),
@@ -32,9 +32,9 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
 
   return await deployContract(api, account, abi, wasm, 'new', [
     args.admin,
-    args.aznsNameCheckerAddress,
-    args.aznsFeeCalculatorAddress,
-    args.aznsMerkleVerifierAddress,
+    args.nameCheckerAddress,
+    args.feeCalculatorAddress,
+    args.merkleVerifierAddress,
     args.reservedNames,
     args.tld,
     args.metadataSizeLimit,
