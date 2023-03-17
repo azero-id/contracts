@@ -1,4 +1,7 @@
-use ink::prelude::{string::String, vec::Vec};
+use ink::prelude::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use ink::primitives::AccountId;
 
 type Balance = u128;
@@ -33,6 +36,20 @@ pub enum PSP34Error {
     TokenNotExists,
     /// Returned if safe transfer check fails
     SafeTransferCheckFailed(String),
+}
+
+impl TryFrom<Id> for String {
+    type Error = PSP34Error;
+
+    fn try_from(value: Id) -> core::result::Result<Self, Self::Error> {
+        match value {
+            Id::Bytes(bytes) => String::from_utf8(bytes)
+                .map_err(|_| PSP34Error::Custom("Invalid id. Expected UTF8 string".to_string())),
+            _ => Err(PSP34Error::Custom(
+                "Invalid id. Expected UTF8 string".to_string(),
+            )),
+        }
+    }
 }
 
 #[ink::trait_definition]

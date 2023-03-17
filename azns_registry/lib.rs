@@ -105,6 +105,8 @@ mod azns_registry {
         fee_calculator: Option<FeeCalculatorRef>,
         /// Names which can be claimed only by the specified user
         reserved_names: Mapping<String, Option<AccountId>, ManualKey<100>>,
+        /// Mapping from owner to operator approvals.
+        operator_approvals: Mapping<(AccountId, AccountId), (), ManualKey<101>>,
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
@@ -216,6 +218,7 @@ mod azns_registry {
                 resolving_to_address: Default::default(),
                 whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
+                operator_approvals: Default::default(),
                 tld,
                 metadata_size_limit,
             };
@@ -1018,6 +1021,89 @@ mod azns_registry {
                 Some(expiry) => Ok(expiry <= self.env().block_timestamp()),
                 None => Err(Error::NameDoesntExist),
             }
+        }
+    }
+
+    impl PSP34 for DomainNameService {
+        // TLD is our collection id
+        #[ink(message)]
+        fn collection_id(&self) -> Id {
+            Id::Bytes(self.tld.as_bytes().to_vec())
+        }
+
+        #[ink(message)]
+        fn balance_of(&self, owner: AccountId) -> u32 {
+            self.get_owned_names_of_address(owner)
+                .unwrap_or_default()
+                .len() as u32
+        }
+
+        #[ink(message)]
+        fn owner_of(&self, id: Id) -> Option<AccountId> {
+            id.try_into().map_or(None, |name| self.get_owner(name).ok())
+        }
+
+        #[ink(message)]
+        fn allowance(&self, owner: AccountId, operator: AccountId, id: Option<Id>) -> bool {
+            if self.operator_approvals.contains((owner, operator)) {
+                return true;
+            }
+
+            id.map_or(false, |id| {
+                id.try_into()
+                    .map_or(false, |name| self.get_controller(name) == Ok(operator))
+            })
+        }
+
+        #[ink(message)]
+        fn approve(
+            &mut self,
+            operator: AccountId,
+            id: Option<Id>,
+            approved: bool,
+        ) -> core::result::Result<(), PSP34Error> {
+            let mut caller = self.env().caller();
+
+            match id {
+                Some(id) => {
+                    let owner = self.owner_of(id).ok_or(PSP34Error::TokenNotExists)?;
+
+                    if owner != caller && !self.allowance(owner, caller, None) {
+                        return Err(PSP34Error::NotApproved);
+                    };
+
+                    let name = id.try_into()?;
+
+                    match approved {
+                        true => self.set_controller(name, operator)?,
+                        false => self.set_controller(name, owner)?,
+                    }
+                }
+                None => match approved {
+                    true => {
+                        self.operator_approvals.insert(&(caller, operator), &());
+                    }
+                    false => self.operator_approvals.remove(&(caller, operator)),
+                },
+            }
+
+            // Emit event
+            Ok(())
+        }
+
+        #[ink(message)]
+        fn transfer(
+            &mut self,
+            to: AccountId,
+            id: Id,
+            data: Vec<u8>,
+        ) -> core::result::Result<(), PSP34Error> {
+            unimplemented!()
+        }
+
+        #[ink(message)]
+        fn total_supply(&self) -> Balance {
+            unimplemented!()
         }
     }
 }
