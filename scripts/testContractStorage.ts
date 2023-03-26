@@ -66,12 +66,16 @@ const main = async () => {
 
   // Transactions
   for (let i = 0; i < DOMAIN_COUNT; i++) {
-    // Register domain
-    const domainName = faker.datatype.uuid()
-    await registerDomain(api, account, contract, domainName)
+    try {
+      // Register domain
+      const domainName = faker.datatype.uuid()
+      await registerDomain(api, account, contract, domainName)
 
-    // Add metadata to domain
-    await setDomainSampleMetadata(api, account, contract, domainName, META_COUNT, META_SIZE)
+      // Add metadata to domain
+      await setDomainSampleMetadata(api, account, contract, domainName, META_COUNT, META_SIZE)
+    } catch (e) {
+      break
+    }
 
     bar.update(i + 1)
   }
@@ -98,7 +102,8 @@ const registerDomain = async (api, account, contract, domainName) => {
       false,
     ])
   } catch (e) {
-    console.error(`Error while registering '${domainName}.azero':`, e?.errorMessage)
+    console.error(`Error while registering '${domainName}.azero':`, e)
+    throw new Error()
   }
 }
 
@@ -114,7 +119,8 @@ const setDomainSampleMetadata = async (api, account, contract, domainName, rowCo
       .map(() => [faker.datatype.string(itemSize), faker.datatype.string(itemSize)])
     await contractTx(api, account, contract, 'setAllRecords', {}, [domainName, sampleMetadata])
   } catch (e) {
-    console.error(`Error while adding metadata to '${domainName}.azero':`, e?.errorMessage)
+    console.error(`Error while adding metadata to '${domainName}.azero':`, e)
+    throw new Error()
   }
 }
 
