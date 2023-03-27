@@ -144,6 +144,8 @@ mod azns_registry {
 
         /// TLD
         tld: String,
+        /// Total supply (including expired names)
+        total_supply: Balance,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -233,6 +235,7 @@ mod azns_registry {
                 operator_approvals: Default::default(),
                 tld,
                 metadata_size_limit,
+                total_supply: 0,
             };
 
             // Initialize address verifier
@@ -891,6 +894,8 @@ mod azns_registry {
             /* Update convenience mapping for resolved names */
             self.add_name_to_resolving(recipient, name);
 
+            self.total_supply += 1;
+
             /* Emit register event */
             Self::env().emit_event(Register {
                 name: name.to_string(),
@@ -912,6 +917,8 @@ mod azns_registry {
             self.remove_name_from_owner(&address_dict.owner, &name);
             self.remove_name_from_controller(&address_dict.controller, &name);
             self.remove_name_from_resolving(&address_dict.resolved, &name);
+
+            self.total_supply -= 1;
         }
 
         /// Adds a name to owners' collection
@@ -1118,7 +1125,7 @@ mod azns_registry {
 
         #[ink(message)]
         fn total_supply(&self) -> Balance {
-            unimplemented!()
+            self.total_supply
         }
     }
 }
