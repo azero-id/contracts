@@ -16,8 +16,9 @@ dotenv.config({ path: `.env.${process.env.CHAIN}` })
 /**
  * Script that tests merkle tree verification off- and on-chain.
  *
- * Example:
- *  `DOMAIN_COUNT=10 METADATA_ROW_COUNT=10 METADATA_ITEM_SIZE=32 pnpm ts-node scripts/testContractStorage.ts`
+ * Examples:
+ *   `DOMAIN_COUNT=10 METADATA_ROW_COUNT=0 pnpm ts-node scripts/testContractStorage.ts`
+ *   `DOMAIN_COUNT=10 METADATA_SIZE_LIMIT=8000 METADATA_ROW_COUNT=120 METADATA_ITEM_SIZE=32 pnpm ts-node scripts/testContractStorage.ts`
  */
 const main = async () => {
   const chain = getSubstrateChain(process.env.CHAIN || 'development')
