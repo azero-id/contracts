@@ -81,6 +81,18 @@ mod azns_registry {
         new_owner: AccountId,
     }
 
+    /// Event emitted when a token approve occurs.
+    #[ink(event)]
+    pub struct Approval {
+        #[ink(topic)]
+        owner: AccountId,
+        #[ink(topic)]
+        operator: AccountId,
+        #[ink(topic)]
+        id: Option<Id>,
+        approved: bool,
+    }
+
     /// Emitted when switching from whitelist-phase to public-phase
     #[ink(event)]
     pub struct PublicPhaseActivated;
@@ -106,7 +118,7 @@ mod azns_registry {
         /// Names which can be claimed only by the specified user
         reserved_names: Mapping<String, Option<AccountId>, ManualKey<100>>,
         /// Mapping from owner to operator approvals.
-        operator_approvals: Mapping<(AccountId, AccountId), (), ManualKey<101>>,
+        operator_approvals: Mapping<(AccountId, AccountId, Option<Id>), (), ManualKey<101>>,
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
@@ -1045,14 +1057,10 @@ mod azns_registry {
 
         #[ink(message)]
         fn allowance(&self, owner: AccountId, operator: AccountId, id: Option<Id>) -> bool {
-            if self.operator_approvals.contains((owner, operator)) {
+            if id.is_some() && self.operator_approvals.contains(&(owner, operator, None)) {
                 return true;
             }
-
-            id.map_or(false, |id| {
-                id.try_into()
-                    .map_or(false, |name| self.get_controller(name) == Ok(operator))
-            })
+            self.operator_approvals.contains(&(owner, operator, id))
         }
 
         #[ink(message)]
@@ -1064,30 +1072,37 @@ mod azns_registry {
         ) -> core::result::Result<(), PSP34Error> {
             let mut caller = self.env().caller();
 
-            match id {
-                Some(id) => {
-                    let owner = self.owner_of(id).ok_or(PSP34Error::TokenNotExists)?;
+            if let Some(id) = &id {
+                let owner = self
+                    .owner_of(id.clone())
+                    .ok_or(PSP34Error::TokenNotExists)?;
 
-                    if owner != caller && !self.allowance(owner, caller, None) {
-                        return Err(PSP34Error::NotApproved);
-                    };
-
-                    let name = id.try_into()?;
-
-                    match approved {
-                        true => self.set_controller(name, operator)?,
-                        false => self.set_controller(name, owner)?,
-                    }
+                if approved && owner == operator {
+                    return Err(PSP34Error::SelfApprove);
                 }
-                None => match approved {
-                    true => {
-                        self.operator_approvals.insert(&(caller, operator), &());
-                    }
-                    false => self.operator_approvals.remove(&(caller, operator)),
-                },
+
+                if owner != caller && !self.allowance(owner, caller, None) {
+                    return Err(PSP34Error::NotApproved);
+                };
+                caller = owner;
+            }
+
+            match approved {
+                true => {
+                    self.operator_approvals
+                        .insert((&caller, &operator, &id), &());
+                }
+                false => self.operator_approvals.remove((&caller, &operator, &id)),
             }
 
             // Emit event
+            self.env().emit_event(Approval {
+                owner: caller,
+                operator,
+                id,
+                approved,
+            });
+
             Ok(())
         }
 
