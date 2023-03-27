@@ -52,6 +52,12 @@ impl TryFrom<Id> for String {
     }
 }
 
+impl From<String> for Id {
+    fn from(value: String) -> Self {
+        Self::Bytes(value.as_bytes().to_vec())
+    }
+}
+
 #[ink::trait_definition]
 pub trait PSP34 {
     /// Returns the collection `Id` of the NFT token.

@@ -69,16 +69,15 @@ mod azns_registry {
         new_address: AccountId,
     }
 
-    /// Emitted whenever a name is transferred.
+    /// Event emitted when a token transfer occurs.
     #[ink(event)]
     pub struct Transfer {
         #[ink(topic)]
-        name: String,
-        from: AccountId,
+        from: Option<AccountId>,
         #[ink(topic)]
-        old_owner: Option<AccountId>,
+        to: Option<AccountId>,
         #[ink(topic)]
-        new_owner: AccountId,
+        id: Id,
     }
 
     /// Event emitted when a token approve occurs.
@@ -395,41 +394,15 @@ mod azns_registry {
 
         /// Transfer owner to another address.
         #[ink(message)]
-        pub fn transfer(&mut self, name: String, to: AccountId) -> Result<()> {
-            // Transfer is disabled during the whitelist-phase
-            if self.is_whitelist_phase() {
-                return Err(Error::RestrictedDuringWhitelistPhase);
-            }
-
-            /* Ensure the caller is the owner of the name */
-            let caller = Self::env().caller();
-            self.ensure_owner(&caller, &name)?;
-
-            /* Transfer control to new owner `to` */
-            let address_dict = AddressDict::new(to);
-            self.name_to_address_dict.insert(&name, &address_dict);
-
-            /* Remove from reverse search */
-            self.remove_name_from_owner(&caller, &name);
-            self.remove_name_from_controller(&caller, &name);
-            self.remove_name_from_resolving(&caller, &name);
-
-            /* Add to reverse search of owner */
-            self.add_name_to_owner(&to, &name);
-            self.add_name_to_controller(&to, &name);
-            self.add_name_to_resolving(&to, &name);
-
-            /* Clear metadata */
-            self.metadata.remove(&name);
-
-            Self::env().emit_event(Transfer {
-                name,
-                from: caller,
-                old_owner: Some(caller),
-                new_owner: to,
-            });
-
-            Ok(())
+        pub fn transfer(
+            &mut self,
+            to: AccountId,
+            name: String,
+            keep_metadata: bool,
+            keep_controller: bool,
+            keep_resolving: bool,
+        ) -> core::result::Result<(), PSP34Error> {
+            self.transfer_for(to, &name, keep_metadata, keep_controller, keep_resolving)
         }
 
         /// Removes the associated state of expired-names from storage
@@ -902,6 +875,12 @@ mod azns_registry {
                 from: *recipient,
             });
 
+            self.env().emit_event(Transfer {
+                from: None,
+                to: Some(*recipient),
+                id: name.to_string().into(),
+            });
+
             Ok(())
         }
 
@@ -919,6 +898,79 @@ mod azns_registry {
             self.remove_name_from_resolving(&address_dict.resolved, &name);
 
             self.total_supply -= 1;
+
+            self.env().emit_event(Transfer {
+                from: Some(address_dict.owner),
+                to: None,
+                id: name.to_string().into(),
+            });
+        }
+
+        fn transfer_for(
+            &mut self,
+            to: AccountId,
+            name: &str,
+            keep_metadata: bool,
+            keep_controller: bool,
+            keep_resolving: bool,
+        ) -> core::result::Result<(), PSP34Error> {
+            // Transfer is disabled during the whitelist-phase
+            if self.is_whitelist_phase() {
+                return Err(PSP34Error::Custom(
+                    "transfer disabled during whitelist phase".to_string(),
+                ));
+            }
+
+            let id: Id = name.to_string().into();
+            let mut address_dict = self
+                .get_address_dict_ref(&name)
+                .map_err(|_| PSP34Error::TokenNotExists)?;
+
+            let AddressDict {
+                owner,
+                controller,
+                resolved,
+            } = address_dict;
+
+            // Ensure the caller is authorised to transfer the name
+            let caller = self.env().caller();
+            if caller != owner && !self.allowance(owner, caller, Some(id.clone())) {
+                return Err(PSP34Error::NotApproved);
+            }
+
+            address_dict.owner = to;
+            self.remove_name_from_owner(&owner, &name);
+            self.add_name_to_owner(&to, &name);
+
+            if !keep_controller {
+                address_dict.controller = to;
+                self.remove_name_from_controller(&controller, &name);
+                self.add_name_to_controller(&to, &name);
+            }
+
+            if !keep_resolving {
+                address_dict.resolved = to;
+                self.remove_name_from_resolving(&resolved, &name);
+                self.add_name_to_resolving(&to, &name);
+            }
+
+            if !keep_metadata {
+                self.metadata.remove(name);
+            }
+
+            self.name_to_address_dict.insert(name, &address_dict);
+            self.operator_approvals
+                .remove((&owner, &caller, &Some(id.clone())));
+
+            // TODO safe transfer check
+
+            Self::env().emit_event(Transfer {
+                from: Some(owner),
+                to: Some(to),
+                id,
+            });
+
+            Ok(())
         }
 
         /// Adds a name to owners' collection
@@ -1047,7 +1099,7 @@ mod azns_registry {
         // TLD is our collection id
         #[ink(message)]
         fn collection_id(&self) -> Id {
-            Id::Bytes(self.tld.as_bytes().to_vec())
+            self.tld.clone().into()
         }
 
         #[ink(message)]
@@ -1118,9 +1170,10 @@ mod azns_registry {
             &mut self,
             to: AccountId,
             id: Id,
-            data: Vec<u8>,
+            _data: Vec<u8>,
         ) -> core::result::Result<(), PSP34Error> {
-            unimplemented!()
+            let name: String = id.try_into()?;
+            self.transfer_for(to, &name, false, false, false)
         }
 
         #[ink(message)]
@@ -1750,7 +1803,10 @@ mod tests {
         );
 
         // Test transfer of owner.
-        assert_eq!(contract.transfer(name.clone(), accounts.bob), Ok(()));
+        assert_eq!(
+            contract.transfer(accounts.bob, name.clone(), false, false, false),
+            Ok(())
+        );
 
         assert_eq!(
             contract.get_owned_names_of_address(accounts.alice),
