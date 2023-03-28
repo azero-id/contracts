@@ -1261,6 +1261,21 @@ mod azns_registry {
             self.total_supply
         }
     }
+
+    impl PSP34Metadata for DomainNameService {
+        #[ink(message)]
+        fn get_attribute(&self, id: Id, key: Vec<u8>) -> Option<Vec<u8>> {
+            match id.try_into() {
+                Ok(name) => {
+                    let Ok(key) = String::from_utf8(key) else {
+                        return None;
+                    };
+                    self.get_record(name, key).map(|val| val.into_bytes()).ok()
+                }
+                Err(_) => None,
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1884,7 +1899,7 @@ mod tests {
 
         // Test transfer of owner.
         assert_eq!(
-            contract.transfer(accounts.bob, name.clone(), false, false, false),
+            contract.transfer(accounts.bob, name.clone(), false, false, false, vec![]),
             Ok(())
         );
 
