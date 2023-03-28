@@ -475,59 +475,39 @@ mod azns_registry {
             Ok(())
         }
 
-        /// Sets all records
         #[ink(message)]
-        pub fn set_all_records(
+        pub fn update_records(
             &mut self,
             name: String,
-            records: Vec<(String, String)>,
+            records: Vec<(String, Option<String>)>,
+            remove_rest: bool,
         ) -> Result<()> {
-            /* Ensure that the caller is a controller */
             let caller: AccountId = Self::env().caller();
             self.ensure_controller(&caller, &name)?;
 
-            self.metadata.insert(&name, &records);
+            use ink::prelude::collections::BTreeMap;
 
-            self.ensure_metadata_under_limit(&name)
-        }
+            let mut data = BTreeMap::new();
 
-        /// Sets one record
-        #[ink(message)]
-        pub fn set_record(&mut self, name: String, record: (String, String)) -> Result<()> {
-            /* Ensure that the caller is a controller */
-            let caller: AccountId = Self::env().caller();
-            self.ensure_controller(&caller, &name)?;
+            if !remove_rest {
+                self.get_metadata_ref(&name)
+                    .into_iter()
+                    .for_each(|(key, val)| {
+                        data.insert(key, val);
+                    });
+            }
 
-            let metadata = self.metadata.get(&name).unwrap_or_default();
-            let updated_metadata = self.update_metadata(metadata, &record.0, &record.1);
+            records.into_iter().for_each(|(key, val)| {
+                match val {
+                    Some(v) => data.insert(key, v),
+                    None => data.remove(&key),
+                };
+            });
+
+            let updated_metadata: Vec<(String, String)> = data.into_iter().collect();
             self.metadata.insert(&name, &updated_metadata);
 
             self.ensure_metadata_under_limit(&name)
-        }
-
-        fn update_metadata(
-            &self,
-            metadata: Vec<(String, String)>,
-            key: &str,
-            value: &str,
-        ) -> Vec<(String, String)> {
-            let mut found = false;
-            let mut updated_metadata: Vec<(String, String)> = metadata
-                .into_iter()
-                .map(|(k, v)| {
-                    if k == key {
-                        found = true;
-                        (k, value.to_string())
-                    } else {
-                        (k, v)
-                    }
-                })
-                .collect();
-
-            if !found {
-                updated_metadata.push((key.to_string(), value.to_string()));
-            }
-            updated_metadata
         }
 
         /// Returns the current status of the name
@@ -1554,23 +1534,21 @@ mod tests {
             Err(Error::CallerIsNotController)
         );
 
-        /* Caller is not controller, `set_all_records` should fail */
+        /* Caller is not controller, `update_records` should fail */
         set_next_caller(accounts.bob);
         assert_eq!(
-            contract.set_all_records(
+            contract.update_records(
                 name.clone(),
-                Vec::from([("twitter".to_string(), "@newtest".to_string())])
+                Vec::from([("twitter".to_string(), None)]),
+                false,
             ),
             Err(Error::CallerIsNotController)
         );
 
-        // Caller is controller, `set_all_records` should pass
+        // Caller is controller, `update_records` should pass
         set_next_caller(accounts.alice);
         assert_eq!(
-            contract.set_all_records(
-                name,
-                Vec::from([("twitter".to_string(), "@newtest".to_string())])
-            ),
+            contract.update_records(name, Vec::from([("twitter".to_string(), None)]), false),
             Ok(())
         );
     }
@@ -1651,7 +1629,7 @@ mod tests {
         let accounts = default_accounts();
         let key = String::from("twitter");
         let value = String::from("@test");
-        let records = Vec::from([(key.clone(), value.clone())]);
+        let records = Vec::from([(key.clone(), Some(value.clone()))]);
 
         let name_name = "test".to_string();
 
@@ -1665,7 +1643,7 @@ mod tests {
         );
 
         assert_eq!(
-            contract.set_all_records(name_name.clone(), records.clone()),
+            contract.update_records(name_name.clone(), records.clone(), false),
             Ok(())
         );
         assert_eq!(
@@ -1674,14 +1652,18 @@ mod tests {
         );
 
         /* Confirm idempotency */
-        assert_eq!(contract.set_all_records(name_name.clone(), records), Ok(()));
+        assert_eq!(
+            contract.update_records(name_name.clone(), records, true),
+            Ok(())
+        );
         assert_eq!(contract.get_record(name_name.clone(), key).unwrap(), value);
 
         /* Confirm overwriting */
         assert_eq!(
-            contract.set_all_records(
+            contract.update_records(
                 name_name.clone(),
-                Vec::from([("twitter".to_string(), "@newtest".to_string())]),
+                Vec::from([("twitter".to_string(), Some("@newtest".to_string()))]),
+                false,
             ),
             Ok(())
         );
@@ -1709,7 +1691,11 @@ mod tests {
         );
 
         assert_eq!(
-            contract.set_record(name_name.clone(), (key.clone(), value.clone())),
+            contract.update_records(
+                name_name.clone(),
+                vec![(key.clone(), Some(value.clone()))],
+                false,
+            ),
             Ok(())
         );
         assert_eq!(
@@ -1719,16 +1705,21 @@ mod tests {
 
         /* Confirm idempotency */
         assert_eq!(
-            contract.set_record(name_name.clone(), (key.clone(), value.clone())),
+            contract.update_records(
+                name_name.clone(),
+                vec![(key.clone(), Some(value.clone()))],
+                false,
+            ),
             Ok(())
         );
         assert_eq!(contract.get_record(name_name.clone(), key).unwrap(), value);
 
         /* Confirm overwriting */
         assert_eq!(
-            contract.set_record(
+            contract.update_records(
                 name_name.clone(),
-                ("twitter".to_string(), "@newtest".to_string()),
+                vec![("twitter".to_string(), Some("@newtest".to_string()))],
+                false,
             ),
             Ok(())
         );
@@ -1743,33 +1734,34 @@ mod tests {
         let mut contract = get_test_name_service();
         let name = "alice".to_string();
         let records = vec![
-            ("@twitter".to_string(), "alice_musk".to_string()),
-            ("@facebook".to_string(), "alice_zuk".to_string()),
+            ("@twitter".to_string(), Some("alice_musk".to_string())),
+            ("@facebook".to_string(), Some("alice_zuk".to_string())),
+            ("@instagram".to_string(), Some("alice_zuk".to_string())),
         ];
 
-        contract.set_metadata_size_limit(Some(40)).unwrap();
-        assert_eq!(contract.get_metadata_size_limit(), Some(40));
+        contract.set_metadata_size_limit(Some(41)).unwrap();
+        assert_eq!(contract.get_metadata_size_limit(), Some(41));
 
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         contract
             .register(name.clone(), 1, None, None, false)
             .unwrap();
 
-        // With current input, both records cannot be stored simultaneously
+        // With current input, records cannot be stored simultaneously
         assert_eq!(
-            contract.set_all_records(name.clone(), records.clone()),
+            contract.update_records(name.clone(), records.clone(), false),
             Err(Error::MetadataOverflow)
         );
 
         // Storing only one works
         assert_eq!(
-            contract.set_all_records(name.clone(), records[0..1].to_vec()),
+            contract.update_records(name.clone(), records[0..1].to_vec(), true),
             Ok(())
         );
 
         // Adding the second record fails
         assert_eq!(
-            contract.set_record(name.clone(), records[1].clone()),
+            contract.update_records(name.clone(), records[1..3].to_vec(), false),
             Err(Error::MetadataOverflow),
         );
     }
