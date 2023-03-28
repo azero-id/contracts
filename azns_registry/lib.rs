@@ -142,8 +142,6 @@ mod azns_registry {
         NameEmpty,
         /// Record with the key doesn't exist
         RecordNotFound,
-        /// Address has no records
-        NoRecordsForAddress,
         /// Withdraw failed
         WithdrawFailed,
         /// No resolved address found
@@ -581,14 +579,14 @@ mod azns_registry {
 
         /// Gets all records
         #[ink(message)]
-        pub fn get_records(&self, name: String) -> Result<Vec<(String, String)>> {
+        pub fn get_all_records(&self, name: String) -> Vec<(String, String)> {
             self.get_metadata_ref(&name)
         }
 
         /// Gets an arbitrary record by key
         #[ink(message)]
         pub fn get_record(&self, name: String, key: String) -> Result<String> {
-            let info = self.get_metadata_ref(&name)?;
+            let info = self.get_metadata_ref(&name);
             match info.iter().find(|tuple| tuple.0 == key) {
                 Some(val) => Ok(val.clone().1),
                 None => Err(Error::RecordNotFound),
@@ -976,11 +974,11 @@ mod azns_registry {
                 .ok_or(Error::NameDoesntExist)
         }
 
-        fn get_metadata_ref(&self, name: &str) -> Result<Vec<(String, String)>> {
+        fn get_metadata_ref(&self, name: &str) -> Vec<(String, String)> {
             self.metadata
                 .get(name)
                 .filter(|_| self.has_name_expired(name) == Ok(false))
-                .ok_or(Error::NoRecordsForAddress)
+                .unwrap_or_default()
         }
 
         fn has_name_expired(&self, name: &str) -> Result<bool> {
@@ -1686,7 +1684,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract.get_records(name_name).unwrap(),
+            contract.get_all_records(name_name),
             Vec::from([("twitter".to_string(), "@newtest".to_string())])
         );
     }
@@ -1733,7 +1731,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            contract.get_records(name_name).unwrap(),
+            contract.get_all_records(name_name),
             Vec::from([("twitter".to_string(), "@newtest".to_string())])
         );
     }
@@ -2018,10 +2016,7 @@ mod tests {
             Err(Error::NoResolvedAddress)
         );
 
-        assert_eq!(
-            contract.get_records(name1.clone()),
-            Err(Error::NoRecordsForAddress)
-        );
+        assert_eq!(contract.get_all_records(name1.clone()), vec![]);
 
         // Reverse mapping implicitly excludes expired names
         assert_eq!(
