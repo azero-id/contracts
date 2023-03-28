@@ -951,20 +951,22 @@ mod azns_registry {
             // Only in public phase
             if !self.is_whitelist_phase() {
                 if let Some(referrer_name) = referrer {
-                    let address_dict = self.get_address_dict_ref(&referrer_name);
-                    if let Ok(x) = address_dict {
-                        if recipient != x.owner
-                            && recipient != x.controller
-                            && recipient != x.resolved
-                        {
-                            affiliate = Some(x.resolved);
-                            discount = 5 * price / 100; // 5% discount
-                        }
+                    if self.validate_referrer(recipient, referrer_name.clone()) {
+                        affiliate = Some(self.get_address(referrer_name).unwrap());
+                        discount = 5 * price / 100; // 5% discount
                     }
                 }
             }
 
             Ok((base_price, premium, discount, affiliate))
+        }
+
+        #[ink(message)]
+        pub fn validate_referrer(&self, recipient: AccountId, referrer_name: String) -> bool {
+            self.get_address_dict_ref(&referrer_name)
+                .map_or(false, |x| {
+                    recipient != x.owner && recipient != x.controller && recipient != x.resolved
+                })
         }
 
         fn get_address_dict_ref(&self, name: &str) -> Result<AddressDict> {
@@ -1979,6 +1981,55 @@ mod tests {
 
         // No bonus received by alice
         assert_eq!(alice_balance, 0);
+    }
+
+    #[ink::test]
+    fn validate_referrer_works() {
+        let default_accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        let name = "alice".to_string();
+
+        // Invalid name -> fails
+        assert_eq!(
+            contract.validate_referrer(default_accounts.alice, name.clone()),
+            false
+        );
+
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+        contract
+            .set_controller(name.clone(), default_accounts.bob)
+            .unwrap();
+        contract
+            .set_address(name.clone(), default_accounts.eve)
+            .unwrap();
+
+        // owner: fails
+        assert_eq!(
+            contract.validate_referrer(default_accounts.alice, name.clone()),
+            false
+        );
+
+        // controller: fails
+        assert_eq!(
+            contract.validate_referrer(default_accounts.bob, name.clone()),
+            false
+        );
+
+        // resolved: fails
+        assert_eq!(
+            contract.validate_referrer(default_accounts.eve, name.clone()),
+            false
+        );
+
+        // A new user: pass
+        assert_eq!(
+            contract.validate_referrer(default_accounts.charlie, name.clone()),
+            true
+        );
     }
 
     #[ink::test]
