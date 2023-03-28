@@ -401,8 +401,16 @@ mod azns_registry {
             keep_metadata: bool,
             keep_controller: bool,
             keep_resolving: bool,
+            data: Vec<u8>,
         ) -> core::result::Result<(), PSP34Error> {
-            self.transfer_for(to, &name, keep_metadata, keep_controller, keep_resolving)
+            self.transfer_for(
+                to,
+                &name,
+                keep_metadata,
+                keep_controller,
+                keep_resolving,
+                &data,
+            )
         }
 
         /// Removes the associated state of expired-names from storage
@@ -913,6 +921,7 @@ mod azns_registry {
             keep_metadata: bool,
             keep_controller: bool,
             keep_resolving: bool,
+            data: &Vec<u8>,
         ) -> core::result::Result<(), PSP34Error> {
             // Transfer is disabled during the whitelist-phase
             if self.is_whitelist_phase() {
@@ -963,12 +972,83 @@ mod azns_registry {
                 .remove((&owner, &caller, &Some(id.clone())));
 
             // TODO safe transfer check
+            self.safe_transfer_check(&caller, &owner, &to, &id, &data)?;
 
             Self::env().emit_event(Transfer {
                 from: Some(owner),
                 to: Some(to),
                 id,
             });
+
+            Ok(())
+        }
+
+        fn safe_transfer_check(
+            &mut self,
+            operator: &AccountId,
+            from: &AccountId,
+            to: &AccountId,
+            id: &Id,
+            data: &Vec<u8>,
+        ) -> core::result::Result<(), PSP34Error> {
+            // @dev This is disabled during tests due to the use of `invoke_contract()` not being
+            // supported (tests end up panicking).
+            #[cfg(not(test))]
+            {
+                use ink::env::call::{build_call, ExecutionInput, Selector};
+
+                const BEFORE_RECEIVED_SELECTOR: [u8; 4] = [0xBB, 0x7D, 0xF7, 0x80];
+
+                let result = build_call::<Environment>()
+                    .call(*to)
+                    .call_flags(ink::env::CallFlags::default().set_allow_reentry(true))
+                    .exec_input(
+                        ExecutionInput::new(Selector::new(BEFORE_RECEIVED_SELECTOR))
+                            .push_arg(operator)
+                            .push_arg(from)
+                            .push_arg(id)
+                            .push_arg::<Vec<u8>>(data.clone()),
+                    )
+                    .returns::<core::result::Result<(), u8>>()
+                    .params()
+                    .try_invoke();
+
+                match result {
+                    Ok(v) => {
+                        ink::env::debug_println!(
+                            "Received return value \"{:?}\" from contract {:?}",
+                            v.clone()
+                                .expect("Call should be valid, don't expect a `LangError`."),
+                            from
+                        );
+                        assert_eq!(
+                            v.clone()
+                                .expect("Call should be valid, don't expect a `LangError`."),
+                            Ok(()),
+                            "The recipient contract at {to:?} does not accept token transfers.\n
+                            Expected: Ok(()), Got {v:?}"
+                        )
+                    }
+                    Err(e) => {
+                        match e {
+                            ink::env::Error::CodeNotFound | ink::env::Error::NotCallable => {
+                                // Our recipient wasn't a smart contract, so there's nothing more for
+                                // us to do
+                                ink::env::debug_println!(
+                                    "Recipient at {:?} from is not a smart contract ({:?})",
+                                    from,
+                                    e
+                                );
+                            }
+                            _ => {
+                                // We got some sort of error from the call to our recipient smart
+                                // contract, and as such we must revert this call
+                                panic!("Got error \"{e:?}\" while trying to call {from:?}")
+                            }
+                        }
+                    }
+                }
+            }
 
             Ok(())
         }
@@ -1170,10 +1250,10 @@ mod azns_registry {
             &mut self,
             to: AccountId,
             id: Id,
-            _data: Vec<u8>,
+            data: Vec<u8>,
         ) -> core::result::Result<(), PSP34Error> {
             let name: String = id.try_into()?;
-            self.transfer_for(to, &name, false, false, false)
+            self.transfer_for(to, &name, false, false, false, &data)
         }
 
         #[ink(message)]
