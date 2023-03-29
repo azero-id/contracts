@@ -1730,6 +1730,77 @@ mod tests {
     }
 
     #[ink::test]
+    fn update_records_works() {
+        let name = "test".to_string();
+        let mut contract = get_test_name_service();
+
+        set_value_transferred::<DefaultEnvironment>(160_u128.pow(12));
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+
+        // add initial metadata values
+        assert_eq!(
+            contract.update_records(
+                name.clone(),
+                vec![
+                    ("@facebook".to_string(), Some("alice_zuk".to_string())),
+                    ("@instagram".to_string(), Some("alice_zuk".to_string())),
+                    ("@twitter".to_string(), Some("alice_musk".to_string())),
+                ],
+                true
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            contract.get_all_records(name.clone()),
+            vec![
+                ("@facebook".to_string(), "alice_zuk".to_string()),
+                ("@instagram".to_string(), "alice_zuk".to_string()),
+                ("@twitter".to_string(), "alice_musk".to_string()),
+            ]
+        );
+
+        // add 1 new record
+        // remove 1 existing record
+        // update 1 existing record
+        assert_eq!(
+            contract.update_records(
+                name.clone(),
+                vec![
+                    ("@reddit".to_string(), Some("alice_tut".to_string())),
+                    ("@instagram".to_string(), None),
+                    ("@twitter".to_string(), Some("elon_musk".to_string()))
+                ],
+                false,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            contract.get_all_records(name.clone()),
+            vec![
+                ("@facebook".to_string(), "alice_zuk".to_string()),
+                ("@reddit".to_string(), "alice_tut".to_string()),
+                ("@twitter".to_string(), "elon_musk".to_string()),
+            ]
+        );
+
+        // add a record with flag: remove_rest
+        assert_eq!(
+            contract.update_records(
+                name.clone(),
+                vec![("@field".to_string(), Some("alice_tut".to_string()))],
+                true,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            contract.get_all_records(name.clone()),
+            vec![("@field".to_string(), "alice_tut".to_string())],
+        );
+    }
+
+    #[ink::test]
     fn metadata_limit_works() {
         let mut contract = get_test_name_service();
         let name = "alice".to_string();
