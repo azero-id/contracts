@@ -83,6 +83,16 @@ mod azns_registry {
     #[ink(event)]
     pub struct PublicPhaseActivated;
 
+    /// Emitted when a name is reserved or removed from the reservation list
+    #[ink(event)]
+    pub struct Reserve {
+        #[ink(topic)]
+        name: String,
+        #[ink(topic)]
+        account_id: Option<AccountId>,
+        action: bool,
+    }
+
     #[ink(storage)]
     pub struct DomainNameService {
         /// Admin of the contract can perform root operations
@@ -331,7 +341,12 @@ mod azns_registry {
             self.register_name(&name, &caller, expiry_time)
                 .and_then(|_| {
                     // Remove the name from the list once claimed
-                    self.reserved_names.remove(name);
+                    self.reserved_names.remove(&name);
+                    self.env().emit_event(Reserve {
+                        name,
+                        account_id: Some(caller),
+                        action: false,
+                    });
                     Ok(())
                 })
         }
@@ -719,6 +734,11 @@ mod azns_registry {
 
             set.iter().for_each(|(name, addr)| {
                 self.reserved_names.insert(&name, addr);
+                self.env().emit_event(Reserve {
+                    name: name.clone(),
+                    account_id: *addr,
+                    action: true,
+                });
             });
             Ok(())
         }
@@ -729,7 +749,16 @@ mod azns_registry {
         pub fn remove_reserved_name(&mut self, set: Vec<String>) -> Result<()> {
             self.ensure_admin()?;
 
-            set.iter().for_each(|name| self.reserved_names.remove(name));
+            set.iter().for_each(|name| {
+                if self.reserved_names.contains(name) {
+                    self.reserved_names.remove(name);
+                    self.env().emit_event(Reserve {
+                        name: name.clone(),
+                        account_id: None,
+                        action: false,
+                    });
+                }
+            });
             Ok(())
         }
 
