@@ -1262,6 +1262,27 @@ mod azns_registry {
         }
     }
 
+    impl PSP34Enumerable for DomainNameService {
+        #[ink(message)]
+        fn owners_token_by_index(
+            &self,
+            owner: AccountId,
+            index: u128,
+        ) -> core::result::Result<Id, PSP34Error> {
+            let tokens = self.get_owned_names_of_address(owner).unwrap_or_default();
+
+            match tokens.get(index as usize) {
+                Some(name) => Ok(name.clone().into()),
+                None => Err(PSP34Error::TokenNotExists),
+            }
+        }
+
+        #[ink(message)]
+        fn token_by_index(&self, _index: u128) -> core::result::Result<Id, PSP34Error> {
+            Err(PSP34Error::Custom("Not Supported".to_string()))
+        }
+    }
+
     impl PSP34Metadata for DomainNameService {
         #[ink(message)]
         fn get_attribute(&self, id: Id, key: Vec<u8>) -> Option<Vec<u8>> {
