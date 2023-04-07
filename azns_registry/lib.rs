@@ -1,11 +1,13 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 mod address_dict;
+mod art_zero_traits;
 mod psp34_standard;
 
 #[ink::contract]
 mod azns_registry {
     use crate::address_dict::AddressDict;
+    use crate::art_zero_traits::*;
     use crate::psp34_standard::*;
     use ink::env::call::FromAccountId;
     use ink::env::hash::CryptoHash;
@@ -1295,6 +1297,74 @@ mod azns_registry {
                 }
                 Err(_) => None,
             }
+        }
+    }
+
+    impl Psp34Traits for DomainNameService {
+        #[ink(message)]
+        fn get_owner(&self) -> AccountId {
+            self.admin
+        }
+
+        #[ink(message)]
+        fn token_uri(&self, _token_id: Id) -> String {
+            String::new()
+        }
+
+        #[ink(message)]
+        fn set_base_uri(&mut self, _uri: String) -> core::result::Result<(), ArtZeroError> {
+            Err(ArtZeroError::Custom("NotSupported".to_string()))
+        }
+
+        #[ink(message)]
+        fn get_attribute_count(&self) -> u32 {
+            0
+        }
+
+        #[ink(message)]
+        fn get_attribute_name(&self, _index: u32) -> String {
+            String::new()
+        }
+
+        #[ink(message)]
+        fn get_attributes(&self, token_id: Id, attributes: Vec<String>) -> Vec<String> {
+            let name: String = match token_id
+                .try_into()
+                .map_err(|_| ArtZeroError::Custom("TokenNotFound".to_string()))
+            {
+                Ok(name) => name,
+                _ => return Default::default(),
+            };
+
+            use ink::prelude::collections::BTreeMap;
+
+            let mut map = BTreeMap::new();
+            self.get_metadata_ref(&name)
+                .into_iter()
+                .for_each(|(key, val)| {
+                    map.insert(key, val);
+                });
+
+            attributes
+                .into_iter()
+                .map(|key| map.get(&key).unwrap_or(&String::new()).clone())
+                .collect()
+        }
+
+        #[ink(message)]
+        fn set_multiple_attributes(
+            &mut self,
+            token_id: Id,
+            metadata: Vec<(String, String)>,
+        ) -> core::result::Result<(), ArtZeroError> {
+            let name: String = token_id
+                .try_into()
+                .map_err(|_| ArtZeroError::Custom("TokenNotFound".to_string()))?;
+
+            let records = metadata.into_iter().map(|(k, v)| (k, Some(v))).collect();
+
+            self.update_records(name, records, false)
+                .map_err(|_| ArtZeroError::Custom("UpdateFailed".to_string()))
         }
     }
 }
