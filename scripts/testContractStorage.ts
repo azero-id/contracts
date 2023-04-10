@@ -119,7 +119,11 @@ const setDomainSampleMetadata = async (api, account, contract, domainName, rowCo
     const sampleMetadata = new Array(rowCount)
       .fill(null)
       .map(() => [faker.datatype.string(itemSize), faker.datatype.string(itemSize)])
-    await contractTx(api, account, contract, 'setAllRecords', {}, [domainName, sampleMetadata])
+    await contractTx(api, account, contract, 'updateRecords', {}, [
+      domainName,
+      sampleMetadata,
+      true,
+    ])
   } catch (e) {
     console.error(`Error while adding metadata to '${domainName}.azero':`, e)
     throw new Error()
