@@ -11,7 +11,8 @@ import { getDeploymentData } from './utils/getDeploymentData'
 import { initPolkadotJs } from './utils/initPolkadotJs'
 
 // Dynamic environment variables
-dotenv.config({ path: `.env.${process.env.CHAIN}` })
+const chainId = process.env.CHAIN || 'development'
+dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
 
 /**
  * Script that tests merkle tree verification off- and on-chain.
@@ -21,8 +22,8 @@ dotenv.config({ path: `.env.${process.env.CHAIN}` })
  *   `DOMAIN_COUNT=10 METADATA_SIZE_LIMIT=8000 METADATA_ROW_COUNT=120 METADATA_ITEM_SIZE=32 pnpm ts-node scripts/testContractStorage.ts`
  */
 const main = async () => {
-  const chain = getSubstrateChain(process.env.CHAIN || 'development')
-  if (!chain) throw new Error(`Chain '${process.env.CHAIN}' not found`)
+  const chain = getSubstrateChain(chainId)
+  if (!chain) throw new Error(`Chain '${chainId}' not found`)
   const accountUri = process.env.ACCOUNT_URI || '//Alice'
   const initParams = await initPolkadotJs(chain, accountUri)
   const { api, decimals, account } = initParams

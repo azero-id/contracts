@@ -9,14 +9,15 @@ import { initPolkadotJs } from './utils/initPolkadotJs'
 import { writeContractAddresses } from './utils/writeContractAddresses'
 
 // Dynamic environment variables
-dotenv.config({ path: `.env.${process.env.CHAIN}` })
+const chainId = process.env.CHAIN || 'development'
+dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
 
 /**
  * Script that deploys all contracts and writes their addresses to files.
  */
 const main = async () => {
-  const chain = getSubstrateChain(process.env.CHAIN || 'development')
-  if (!chain) throw new Error(`Chain '${process.env.CHAIN}' not found`)
+  const chain = getSubstrateChain(chainId)
+  if (!chain) throw new Error(`Chain '${chainId}' not found`)
   const accountUri = process.env.ACCOUNT_URI || '//Alice'
   const initParams = await initPolkadotJs(chain, accountUri)
 
