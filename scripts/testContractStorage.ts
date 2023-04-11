@@ -23,9 +23,16 @@ dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
 /**
  * Script that tests merkle tree verification off- and on-chain.
  *
- * Examples:
- *   `DOMAIN_COUNT=10 USE_RANDOM_ACCOUNTS=true pnpm ts-node scripts/testContractStorage.ts`
- *   `DOMAIN_COUNT=10 METADATA_SIZE_LIMIT=8000 METADATA_ROW_COUNT=120 METADATA_ITEM_SIZE=32 pnpm ts-node scripts/testContractStorage.ts`
+ * Example #1: `DOMAIN_COUNT=1000 pnpm ts-node scripts/testContractStorage.ts`
+ *   - Tests limitations of reverse-mappings by creating 1000 domains for the same account.
+ *   - Fails after 441 domains on Aleph Zero testnet due to storage limitations, see #75.
+ *
+ * Example #2: `DOMAIN_COUNT=1000 USE_RANDOM_ACCOUNTS=true pnpm ts-node scripts/testContractStorage.ts`
+ *   - Should run through as it creates & funds a new random account for each domain.
+ *
+ * Example #3: `DOMAIN_COUNT=1 METADATA_SIZE_LIMIT=8000 METADATA_ROW_COUNT=120 METADATA_ITEM_SIZE=32 pnpm ts-node scripts/testContractStorage.ts`
+ *   - Tests metadata size limits by creating a domain with 120 metadata rows with 64 characters each (32 key & 32 value).
+ *   - Fails with lower `METADATA_SIZE_LIMIT` or higher `METADATA_ROW_COUNT` or `METADATA_ITEM_SIZE` (2×32×120 ⪅ 8000 bytes).
  */
 const main = async () => {
   const chain = getSubstrateChain(chainId)
