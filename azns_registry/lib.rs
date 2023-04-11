@@ -145,6 +145,8 @@ mod azns_registry {
 
         /// TLD
         tld: String,
+        /// Base URI
+        base_uri: String,
         /// Total supply (including expired names)
         total_supply: Balance,
     }
@@ -207,6 +209,7 @@ mod azns_registry {
             merkle_verifier_addr: Option<AccountId>,
             reserved_names: Option<Vec<(String, Option<AccountId>)>>,
             tld: String,
+            base_uri: String,
             metadata_size_limit: Option<u32>,
         ) -> Self {
             // Initializing NameChecker
@@ -235,6 +238,7 @@ mod azns_registry {
                 reserved_names: Default::default(),
                 operator_approvals: Default::default(),
                 tld,
+                base_uri,
                 metadata_size_limit,
                 total_supply: 0,
             };
@@ -677,6 +681,11 @@ mod azns_registry {
         #[ink(message)]
         pub fn get_tld(&self) -> String {
             self.tld.clone()
+        }
+
+        #[ink(message)]
+        pub fn get_base_uri(&self) -> String {
+            self.base_uri.clone()
         }
 
         /// Returns `true` when contract is in whitelist-phase
@@ -1307,23 +1316,42 @@ mod azns_registry {
         }
 
         #[ink(message)]
-        fn token_uri(&self, _token_id: Id) -> String {
-            String::new()
+        fn token_uri(&self, token_id: Id) -> String {
+            let name: core::result::Result<String, _> = token_id.try_into();
+
+            match name {
+                Ok(name) => self.base_uri.clone() + &name + &String::from(".json"),
+                _ => String::new(),
+            }
         }
 
         #[ink(message)]
-        fn set_base_uri(&mut self, _uri: String) -> core::result::Result<(), ArtZeroError> {
-            Err(ArtZeroError::Custom("NotSupported".to_string()))
+        fn set_base_uri(&mut self, uri: String) -> core::result::Result<(), ArtZeroError> {
+            self.ensure_admin()
+                .map_err(|_| ArtZeroError::Custom("Not Authorised".to_string()))?;
+
+            if uri.len() == 0 {
+                return Err(ArtZeroError::Custom("Zero length string".to_string()));
+            }
+            self.base_uri = uri;
+            Ok(())
         }
 
         #[ink(message)]
         fn get_attribute_count(&self) -> u32 {
-            0
+            4
         }
 
         #[ink(message)]
-        fn get_attribute_name(&self, _index: u32) -> String {
-            String::new()
+        fn get_attribute_name(&self, index: u32) -> String {
+            let attr = match index {
+                0 => "TLD",
+                1 => "Length",
+                2 => "Registration",
+                3 => "Expiration",
+                _ => "",
+            };
+            attr.into()
         }
 
         #[ink(message)]
@@ -1336,35 +1364,25 @@ mod azns_registry {
                 _ => return Default::default(),
             };
 
-            use ink::prelude::collections::BTreeMap;
-
-            let mut map = BTreeMap::new();
-            self.get_metadata_ref(&name)
-                .into_iter()
-                .for_each(|(key, val)| {
-                    map.insert(key, val);
-                });
-
             attributes
                 .into_iter()
-                .map(|key| map.get(&key).unwrap_or(&String::new()).clone())
+                .map(|key| match key.as_str() {
+                    "TLD" => self.tld.clone(),
+                    "Length" => name.chars().count().to_string(),
+                    "Registration" => "".to_string(),
+                    "Expiration" => "".to_string(),
+                    _ => "".to_string(),
+                })
                 .collect()
         }
 
         #[ink(message)]
         fn set_multiple_attributes(
             &mut self,
-            token_id: Id,
-            metadata: Vec<(String, String)>,
+            _token_id: Id,
+            _metadata: Vec<(String, String)>,
         ) -> core::result::Result<(), ArtZeroError> {
-            let name: String = token_id
-                .try_into()
-                .map_err(|_| ArtZeroError::Custom("TokenNotFound".to_string()))?;
-
-            let records = metadata.into_iter().map(|(k, v)| (k, Some(v))).collect();
-
-            self.update_records(name, records, false)
-                .map_err(|_| ArtZeroError::Custom("UpdateFailed".to_string()))
+            Err(ArtZeroError::Custom("Not Supported".to_string()))
         }
     }
 }
@@ -1398,6 +1416,7 @@ mod tests {
             None,
             None,
             "azero".to_string(),
+            "ipfs://05121999/".to_string(),
             None,
         )
     }
@@ -2339,6 +2358,7 @@ mod tests {
             None,
             Some(reserved_list),
             "azero".to_string(),
+            "ipfs://05121999/".to_string(),
             None,
         );
 
