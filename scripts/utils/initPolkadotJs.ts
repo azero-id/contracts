@@ -1,6 +1,6 @@
 import { ApiPromise, Keyring } from '@polkadot/api'
 import { IKeyringPair } from '@polkadot/types/types/interfaces'
-import { initPolkadotJs as initApi, SubstrateChain } from '@scio-labs/use-inkathon'
+import { SubstrateChain, getBalance, initPolkadotJs as initApi } from '@scio-labs/use-inkathon'
 
 /**
  * Initialize Polkadot.js API with given RPC & account from given URI.
@@ -26,7 +26,10 @@ export const initPolkadotJs = async (chain: SubstrateChain, uri: string): Promis
   // Initialize account & set signer
   const keyring = new Keyring({ type: 'sr25519' })
   const account = keyring.addFromUri(uri)
-  console.log(`Initialized Accounts: ${account.address}\n`)
+  const balance = await getBalance(api, account.address, 3)
+  console.log(
+    `Initialized Account: ${account.address} (${balance.balanceFormatted} ${balance.tokenSymbol})\n`,
+  )
 
   return { api, keyring, account, decimals }
 }
