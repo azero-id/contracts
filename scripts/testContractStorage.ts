@@ -1,7 +1,13 @@
 import { faker } from '@faker-js/faker'
 import { ContractPromise } from '@polkadot/api-contract'
 import { BN } from '@polkadot/util'
-import { contractTx, getBalance, getSubstrateChain } from '@scio-labs/use-inkathon'
+import {
+  contractTx,
+  getBalance,
+  getSubstrateChain,
+  transferBalance,
+  transferFullBalance,
+} from '@scio-labs/use-inkathon'
 import * as cliProgress from 'cli-progress'
 import * as dotenv from 'dotenv'
 import { deployFeeCalculator } from './deploy/deployFeeCalculator'
@@ -18,7 +24,7 @@ dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
  * Script that tests merkle tree verification off- and on-chain.
  *
  * Examples:
- *   `DOMAIN_COUNT=10 METADATA_ROW_COUNT=0 pnpm ts-node scripts/testContractStorage.ts`
+ *   `DOMAIN_COUNT=10 USE_RANDOM_ACCOUNTS=true pnpm ts-node scripts/testContractStorage.ts`
  *   `DOMAIN_COUNT=10 METADATA_SIZE_LIMIT=8000 METADATA_ROW_COUNT=120 METADATA_ITEM_SIZE=32 pnpm ts-node scripts/testContractStorage.ts`
  */
 const main = async () => {
@@ -26,7 +32,7 @@ const main = async () => {
   if (!chain) throw new Error(`Chain '${chainId}' not found`)
   const accountUri = process.env.ACCOUNT_URI || '//Alice'
   const initParams = await initPolkadotJs(chain, accountUri)
-  const { api, decimals, account } = initParams
+  const { api, decimals, account, keyring } = initParams
 
   // Deploy all contracts
   const { address: nameCheckerAddress } = await deployNameChecker(initParams)
@@ -48,12 +54,17 @@ const main = async () => {
   // Track gas usage
   const { balance: balanceStart } = await getBalance(api, account.address, 5)
 
-  // Determine number of domains to register & amount of metadata to add
+  // Parse options & print info
   const DOMAIN_COUNT = parseInt(process.env.DOMAIN_COUNT ?? '1000')
-  const META_COUNT = parseInt(process.env.METADATA_ROW_COUNT ?? '5')
+  const USE_RANDOM_ACCOUNTS = (process.env.USE_RANDOM_ACCOUNTS || '').toLowerCase() === 'true'
+  const META_COUNT = parseInt(process.env.METADATA_ROW_COUNT ?? '0')
   const META_SIZE = parseInt(process.env.METADATA_ITEM_SIZE ?? '32')
   console.log(
     `\nRegistering ${DOMAIN_COUNT} domain(s) ${
+      USE_RANDOM_ACCOUNTS
+        ? `for ${DOMAIN_COUNT} randomly generated account(s)`
+        : `for ${account.address}`
+    } ${
       META_COUNT
         ? `with ${META_COUNT} metadata row(s) à ${2 * META_SIZE} characters (~${
             2 * META_SIZE * META_COUNT
@@ -69,13 +80,28 @@ const main = async () => {
   // Transactions
   for (let i = 0; i < DOMAIN_COUNT; i++) {
     try {
-      // Register domain
       const domainName = faker.datatype.uuid()
-      await registerDomain(api, account, contract, domainName)
+      let domainAccount = account
+
+      // Generate & fund random account
+      if (USE_RANDOM_ACCOUNTS) {
+        domainAccount = keyring.addFromUri('//' + domainName)
+        const one = new BN(1).mul(new BN(10 ** decimals))
+        await transferBalance(api, account, domainAccount.address, one)
+      }
+
+      // Register domain
+      await registerDomain(api, domainAccount, contract, domainName)
 
       // Add metadata to domain
-      await setDomainSampleMetadata(api, account, contract, domainName, META_COUNT, META_SIZE)
+      await setDomainSampleMetadata(api, domainAccount, contract, domainName, META_COUNT, META_SIZE)
+
+      // Refund rest from random account
+      if (USE_RANDOM_ACCOUNTS) {
+        await transferFullBalance(api, domainAccount, account.address)
+      }
     } catch (e) {
+      console.error('Error, aborting:', e)
       break
     }
 
