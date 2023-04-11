@@ -21,7 +21,7 @@ const chainId = process.env.CHAIN || 'development'
 dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
 
 /**
- * Script that tests merkle tree verification off- and on-chain.
+ * Script that tests different storage limits of the `azns_registry` contract.
  *
  * Example #1: `DOMAIN_COUNT=1000 pnpm ts-node scripts/testContractStorage.ts`
  *   - Tests limitations of reverse-mappings by creating 1000 domains for the same account.
