@@ -123,8 +123,8 @@ mod azns_registry {
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
-        /// Mapping from name to its expiry timestamp
-        name_to_expiry: Mapping<String, u64>,
+        /// Mapping from name to its registration period (timestamp)
+        name_to_period: Mapping<String, (u64, u64)>,
         /// Metadata
         metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
         metadata_size_limit: Option<u32>,
@@ -228,7 +228,7 @@ mod azns_registry {
                 name_checker,
                 fee_calculator,
                 name_to_address_dict: Mapping::default(),
-                name_to_expiry: Mapping::default(),
+                name_to_period: Mapping::default(),
                 owner_to_names: Default::default(),
                 metadata: Default::default(),
                 address_to_primary_name: Default::default(),
@@ -579,8 +579,15 @@ mod azns_registry {
         }
 
         #[ink(message)]
+        pub fn get_registration_date(&self, name: String) -> Result<u64> {
+            self.get_registration_period_ref(&name)
+                .map(|(registration, _)| registration)
+        }
+
+        #[ink(message)]
         pub fn get_expiry_date(&self, name: String) -> Result<u64> {
-            self.name_to_expiry.get(&name).ok_or(Error::NameDoesntExist)
+            self.get_registration_period_ref(&name)
+                .map(|(_, expiry)| expiry)
         }
 
         /// Gets all records
@@ -873,9 +880,11 @@ mod azns_registry {
                 _ => (),                             // Name is available
             }
 
+            let registration = self.env().block_timestamp();
+
             let address_dict = AddressDict::new(recipient.clone());
             self.name_to_address_dict.insert(name, &address_dict);
-            self.name_to_expiry.insert(name, &expiry);
+            self.name_to_period.insert(name, &(registration, expiry));
 
             /* Update convenience mapping for owned names */
             self.add_name_to_owner(recipient, name);
@@ -909,7 +918,7 @@ mod azns_registry {
             };
 
             self.name_to_address_dict.remove(name);
-            self.name_to_expiry.remove(name);
+            self.name_to_period.remove(name);
             self.metadata.remove(name);
 
             self.remove_name_from_owner(&address_dict.owner, &name);
@@ -1178,9 +1187,13 @@ mod azns_registry {
                 .unwrap_or_default()
         }
 
+        fn get_registration_period_ref(&self, name: &str) -> Result<(u64, u64)> {
+            self.name_to_period.get(name).ok_or(Error::NameDoesntExist)
+        }
+
         fn has_name_expired(&self, name: &str) -> Result<bool> {
-            match self.name_to_expiry.get(name) {
-                Some(expiry) => Ok(expiry <= self.env().block_timestamp()),
+            match self.name_to_period.get(name) {
+                Some((_, expiry)) => Ok(expiry <= self.env().block_timestamp()),
                 None => Err(Error::NameDoesntExist),
             }
         }
@@ -1369,8 +1382,14 @@ mod azns_registry {
                 .map(|key| match key.as_str() {
                     "TLD" => self.tld.clone(),
                     "Length" => name.chars().count().to_string(),
-                    "Registration" => "".to_string(),
-                    "Expiration" => "".to_string(),
+                    "Registration" => match self.get_registration_period_ref(&name) {
+                        Ok(period) => period.0.to_string(),
+                        _ => String::new(),
+                    },
+                    "Expiration" => match self.get_registration_period_ref(&name) {
+                        Ok(period) => period.1.to_string(),
+                        _ => String::new(),
+                    },
                     _ => "".to_string(),
                 })
                 .collect()
