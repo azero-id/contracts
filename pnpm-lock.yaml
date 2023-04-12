@@ -17,8 +17,8 @@ devDependencies:
     specifier: ^11.1.3
     version: 11.1.3
   '@scio-labs/use-inkathon':
-    specifier: 0.0.1-alpha.38
-    version: 0.0.1-alpha.38(@polkadot/api-contract@10.3.2)(@polkadot/api@10.3.2)(@polkadot/extension-dapp@0.45.5)(@polkadot/extension-inject@0.45.5)(@polkadot/types@10.3.2)(@polkadot/util@11.1.3)(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.0.1-alpha.39
+    version: 0.0.1-alpha.39(@polkadot/api-contract@10.3.2)(@polkadot/api@10.3.2)(@polkadot/extension-dapp@0.45.5)(@polkadot/extension-inject@0.45.5)(@polkadot/types@10.3.2)(@polkadot/util@11.1.3)(react-dom@18.2.0)(react@18.2.0)
   '@types/node':
     specifier: ^18.15.11
     version: 18.15.11
@@ -617,8 +617,8 @@ packages:
       - utf-8-validate
     dev: true
 
-  /@scio-labs/use-inkathon@0.0.1-alpha.38(@polkadot/api-contract@10.3.2)(@polkadot/api@10.3.2)(@polkadot/extension-dapp@0.45.5)(@polkadot/extension-inject@0.45.5)(@polkadot/types@10.3.2)(@polkadot/util@11.1.3)(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-5TmOnXfRO3B5xCZI/g9pdyEFrURyKQUJTkYBwq4WBF9s2OMjG7cxl1oO9k+9BUuEq1SBsUarUamsxbCniu4UDw==}
+  /@scio-labs/use-inkathon@0.0.1-alpha.39(@polkadot/api-contract@10.3.2)(@polkadot/api@10.3.2)(@polkadot/extension-dapp@0.45.5)(@polkadot/extension-inject@0.45.5)(@polkadot/types@10.3.2)(@polkadot/util@11.1.3)(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-nTeC81N5LhZKZr/JW2ul+up+BJoRYAgemu/ywB9LYhRCXs6UpdT94nGubq9qz8dYnGat8psJY/50KEoLHE+K8g==}
     engines: {node: '>=16 <=18', pnpm: '8'}
     peerDependencies:
       '@polkadot/api': '>=9.14.0'

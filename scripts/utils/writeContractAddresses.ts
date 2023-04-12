@@ -1,22 +1,29 @@
+import { deployContract } from '@scio-labs/use-inkathon'
 import { writeFile } from 'fs/promises'
 import path from 'path'
 
 /**
- * Writes each given contract address record to a `{baseDir}/{contract}/{network}.ts` file.
+ * Writes each given contract address & blockNumber to a `{baseDir}/{contract}/{network}.ts` file.
  * NOTE: Base directory can be configured via the `DIR` environment variable
  */
 export const writeContractAddresses = async (
   networkId: string,
-  contractAddresses: Record<string, string>,
+  contractDeployments: Record<string, Awaited<ReturnType<typeof deployContract>>>,
 ) => {
   const baseDir = process.env.DIR || './deployments'
 
   console.log()
-  for (const [contractName, address] of Object.entries(contractAddresses)) {
-    const addressFileRelativePath = path.join(baseDir, contractName, `${networkId}.ts`)
-    const addressFilePath = path.join(path.resolve(), addressFileRelativePath)
-    const addressFileContents = `export const address = '${address}'\n`
-    await writeFile(addressFilePath, addressFileContents)
-    console.log(`Wrote address to file: ${addressFileRelativePath}`)
+  for (const [contractName, deployment] of Object.entries(contractDeployments)) {
+    const relativePath = path.join(baseDir, contractName, `${networkId}.ts`)
+    const absolutePath = path.join(path.resolve(), relativePath)
+    let fileContents = ''
+    if (deployment?.address) {
+      fileContents += `export const address = '${deployment.address}'\n`
+    }
+    if (deployment?.blockNumber) {
+      fileContents += `export const blockNumber = ${deployment.blockNumber}\n`
+    }
+    await writeFile(absolutePath, fileContents)
+    console.log(`Exported deployment info to file: ${relativePath}`)
   }
 }

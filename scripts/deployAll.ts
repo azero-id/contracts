@@ -22,28 +22,28 @@ const main = async () => {
   const initParams = await initPolkadotJs(chain, accountUri)
 
   // Deploy all contracts
-  const { address: nameCheckerAddress } = await deployNameChecker(initParams)
-  const { address: feeCalculatorAddress } = await deployFeeCalculator(initParams)
-  const { address: merkleVerifierAddress } = process.env.WHITELIST
+  const nameChecker = await deployNameChecker(initParams)
+  const feeCalculator = await deployFeeCalculator(initParams)
+  const merkleVerifier = process.env.WHITELIST
     ? await deployMerkleVerifierWithWhitelist(initParams)
-    : { address: null }
-  const { address: registryAddress } = await deployRegistry(initParams, {
-    nameCheckerAddress,
-    feeCalculatorAddress,
-    merkleVerifierAddress,
+    : null
+  const registry = await deployRegistry(initParams, {
+    nameCheckerAddress: nameChecker.address,
+    feeCalculatorAddress: feeCalculator.address,
+    merkleVerifierAddress: merkleVerifier?.address,
   })
-  const { address: routerAddress } = await deployRouter(initParams)
+  const router = await deployRouter(initParams)
 
   // Add registry to router
-  await addRegistryToRouter(initParams, routerAddress, ['azero', 'a0'], registryAddress)
+  await addRegistryToRouter(initParams, router.address, ['azero', 'a0'], registry.address)
 
   // Write contract addresses to `{contract}/{network}.ts` files
   await writeContractAddresses(chain.network, {
-    azns_name_checker: nameCheckerAddress,
-    azns_fee_calculator: feeCalculatorAddress,
-    azns_merkle_verifier: merkleVerifierAddress,
-    azns_registry: registryAddress,
-    azns_router: routerAddress,
+    azns_name_checker: nameChecker,
+    azns_fee_calculator: feeCalculator,
+    azns_merkle_verifier: merkleVerifier,
+    azns_registry: registry,
+    azns_router: router,
   })
 }
 
