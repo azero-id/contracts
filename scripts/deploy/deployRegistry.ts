@@ -24,7 +24,7 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
       merkleVerifierAddress: null,
       reservedNames: [],
       tld: 'azero',
-      metadataSizeLimit: new BN(16_000),
+      metadataSizeLimit: null,
     } as RegistryArgs,
     customArgs,
   )

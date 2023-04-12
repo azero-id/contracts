@@ -9,14 +9,15 @@ import { constructMerkleTree } from './whitelist/constructMerkleTree'
 import { generateInclusionProof } from './whitelist/generateInclusionProof'
 
 // Dynamic environment variables
-dotenv.config({ path: `.env.${process.env.CHAIN}` })
+const chainId = process.env.CHAIN || 'development'
+dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
 
 /**
  * Script that tests merkle tree verification off- and on-chain.
  */
 const main = async () => {
-  const chain = getSubstrateChain(process.env.CHAIN || 'development')
-  if (!chain) throw new Error(`Chain '${process.env.CHAIN}' not found`)
+  const chain = getSubstrateChain(chainId)
+  if (!chain) throw new Error(`Chain '${chainId}' not found`)
   const accountUri = process.env.ACCOUNT_URI || '//Alice'
   const initParams = await initPolkadotJs(chain, accountUri)
   const { api, keyring, account } = initParams
