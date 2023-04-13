@@ -13,6 +13,7 @@ export type RegistryArgs = {
   merkleVerifierAddress: string
   reservedNames: [string, string][] // [name, address | null][]
   tld: string
+  baseUri: string
   metadataSizeLimit: BN
 }
 export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, customArgs) => {
@@ -24,6 +25,7 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
       merkleVerifierAddress: null,
       reservedNames: [],
       tld: 'azero',
+      baseUri: 'https://dev.azero.domains/api/v1/metadata/',
       metadataSizeLimit: null,
     } as RegistryArgs,
     customArgs,
@@ -37,6 +39,7 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
     args.merkleVerifierAddress,
     args.reservedNames,
     args.tld,
+    args.baseUri,
     args.metadataSizeLimit,
   ])
 }
