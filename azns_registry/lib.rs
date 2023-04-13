@@ -154,6 +154,8 @@ mod azns_registry {
         RecordNotFound,
         /// Withdraw failed
         WithdrawFailed,
+        /// Insufficient balance in the contract
+        InsufficientBalance,
         /// No resolved address found
         NoResolvedAddress,
         /// A user can claim only one name during the whitelist-phase
@@ -223,7 +225,9 @@ mod azns_registry {
 
             // Initializing reserved names
             if let Some(set) = reserved_names {
-                contract.add_reserved_names(set).expect("Infallible");
+                contract
+                    .add_reserved_names(set)
+                    .expect("Invalid reserve name detected");
             }
 
             // No Whitelist phase
@@ -700,12 +704,20 @@ mod azns_registry {
         /// (ADMIN-OPERATION)
         /// Transfers `value` amount of tokens to the caller.
         #[ink(message)]
-        pub fn withdraw(&mut self, value: Balance) -> Result<()> {
+        pub fn withdraw(
+            &mut self,
+            beneficiary: Option<AccountId>,
+            value: Option<Balance>,
+        ) -> Result<()> {
             self.ensure_admin()?;
 
-            assert!(value <= Self::env().balance(), "insufficient funds!");
+            let beneficiary = beneficiary.unwrap_or(self.env().caller());
+            let value = value.unwrap_or(self.env().balance());
 
-            if Self::env().transfer(Self::env().caller(), value).is_err() {
+            if value > self.env().balance() {
+                return Err(Error::InsufficientBalance);
+            }
+            if self.env().transfer(beneficiary, value).is_err() {
                 return Err(Error::WithdrawFailed);
             }
 
@@ -732,14 +744,21 @@ mod azns_registry {
         pub fn add_reserved_names(&mut self, set: Vec<(String, Option<AccountId>)>) -> Result<()> {
             self.ensure_admin()?;
 
-            set.iter().for_each(|(name, addr)| {
+            for (name, addr) in set.iter() {
+                if name.is_empty() {
+                    return Err(Error::NameEmpty);
+                }
+                if self.has_name_expired(name) == Ok(false) {
+                    return Err(Error::NameAlreadyExists);
+                }
+
                 self.reserved_names.insert(&name, addr);
                 self.env().emit_event(Reserve {
                     name: name.clone(),
                     account_id: *addr,
                     action: true,
                 });
-            });
+            }
             Ok(())
         }
 
@@ -1352,7 +1371,7 @@ mod tests {
 
         let balance_before =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
-        assert_eq!(contract.withdraw(fees), Ok(()));
+        assert_eq!(contract.withdraw(None, Some(fees)), Ok(()));
         let balance_after =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
 
@@ -1373,10 +1392,7 @@ mod tests {
         assert_eq!(contract.register(name, 1, None, None, false), Ok(()));
 
         set_next_caller(default_accounts.bob);
-        assert_eq!(
-            contract.withdraw(160_u128 * 10_u128.pow(12)),
-            Err(Error::NotAdmin)
-        );
+        assert_eq!(contract.withdraw(None, None), Err(Error::NotAdmin));
     }
 
     #[ink::test]
@@ -1879,6 +1895,17 @@ mod tests {
         assert_eq!(
             contract.get_name_status(vec![reserved_name]),
             vec![NameStatus::Reserved(Some(accounts.alice))],
+        );
+
+        // Cannot reserve already registered-name
+        let name = "alice".to_string();
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+        assert_eq!(
+            contract.add_reserved_names(vec![(name, None)]),
+            Err(Error::NameAlreadyExists)
         );
 
         // Invocation from non-admin address fails
