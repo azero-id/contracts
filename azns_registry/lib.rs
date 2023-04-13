@@ -225,7 +225,9 @@ mod azns_registry {
 
             // Initializing reserved names
             if let Some(set) = reserved_names {
-                contract.add_reserved_names(set).expect("Infallible");
+                contract
+                    .add_reserved_names(set)
+                    .expect("Invalid reserve name detected");
             }
 
             // No Whitelist phase
@@ -742,14 +744,21 @@ mod azns_registry {
         pub fn add_reserved_names(&mut self, set: Vec<(String, Option<AccountId>)>) -> Result<()> {
             self.ensure_admin()?;
 
-            set.iter().for_each(|(name, addr)| {
+            for (name, addr) in set.iter() {
+                if name.is_empty() {
+                    return Err(Error::NameEmpty);
+                }
+                if self.has_name_expired(name) == Ok(false) {
+                    return Err(Error::NameAlreadyExists);
+                }
+
                 self.reserved_names.insert(&name, addr);
                 self.env().emit_event(Reserve {
                     name: name.clone(),
                     account_id: *addr,
                     action: true,
                 });
-            });
+            }
             Ok(())
         }
 
@@ -1886,6 +1895,17 @@ mod tests {
         assert_eq!(
             contract.get_name_status(vec![reserved_name]),
             vec![NameStatus::Reserved(Some(accounts.alice))],
+        );
+
+        // Cannot reserve already registered-name
+        let name = "alice".to_string();
+        set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+        assert_eq!(
+            contract.add_reserved_names(vec![(name, None)]),
+            Err(Error::NameAlreadyExists)
         );
 
         // Invocation from non-admin address fails
