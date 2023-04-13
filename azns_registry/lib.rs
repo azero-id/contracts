@@ -154,6 +154,8 @@ mod azns_registry {
         RecordNotFound,
         /// Withdraw failed
         WithdrawFailed,
+        /// Insufficient balance in the contract
+        InsufficientBalance,
         /// No resolved address found
         NoResolvedAddress,
         /// A user can claim only one name during the whitelist-phase
@@ -700,12 +702,20 @@ mod azns_registry {
         /// (ADMIN-OPERATION)
         /// Transfers `value` amount of tokens to the caller.
         #[ink(message)]
-        pub fn withdraw(&mut self, value: Balance) -> Result<()> {
+        pub fn withdraw(
+            &mut self,
+            beneficiary: Option<AccountId>,
+            value: Option<Balance>,
+        ) -> Result<()> {
             self.ensure_admin()?;
 
-            assert!(value <= Self::env().balance(), "insufficient funds!");
+            let beneficiary = beneficiary.unwrap_or(self.env().caller());
+            let value = value.unwrap_or(self.env().balance());
 
-            if Self::env().transfer(Self::env().caller(), value).is_err() {
+            if value > self.env().balance() {
+                return Err(Error::InsufficientBalance);
+            }
+            if self.env().transfer(beneficiary, value).is_err() {
                 return Err(Error::WithdrawFailed);
             }
 
@@ -1352,7 +1362,7 @@ mod tests {
 
         let balance_before =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
-        assert_eq!(contract.withdraw(fees), Ok(()));
+        assert_eq!(contract.withdraw(None, Some(fees)), Ok(()));
         let balance_after =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
 
@@ -1373,10 +1383,7 @@ mod tests {
         assert_eq!(contract.register(name, 1, None, None, false), Ok(()));
 
         set_next_caller(default_accounts.bob);
-        assert_eq!(
-            contract.withdraw(160_u128 * 10_u128.pow(12)),
-            Err(Error::NotAdmin)
-        );
+        assert_eq!(contract.withdraw(None, None), Err(Error::NotAdmin));
     }
 
     #[ink::test]
