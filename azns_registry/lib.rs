@@ -118,7 +118,10 @@ mod azns_registry {
         name_to_owner_index: Mapping<String, u128>,
 
         /// All names an address controls
-        controller_to_names: Mapping<AccountId, Vec<String>, ManualKey<301>>,
+        controller_to_name_count: Mapping<AccountId, u128>,
+        controller_to_names: Mapping<(AccountId, u128), String, ManualKey<301>>,
+        name_to_controller_index: Mapping<String, u128>,
+
         /// All names that resolve to the given address
         resolving_to_address: Mapping<AccountId, Vec<String>, ManualKey<302>>,
         /// Primary name record
@@ -215,7 +218,9 @@ mod azns_registry {
                 name_to_owner_index: Default::default(),
                 metadata: Default::default(),
                 address_to_primary_name: Default::default(),
+                controller_to_name_count: Default::default(),
                 controller_to_names: Default::default(),
+                name_to_controller_index: Default::default(),
                 resolving_to_address: Default::default(),
                 whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
@@ -623,12 +628,25 @@ mod azns_registry {
             &self,
             controller: AccountId,
         ) -> Option<Vec<String>> {
-            self.controller_to_names.get(controller).map(|names| {
-                names
-                    .into_iter()
-                    .filter(|name| self.has_name_expired(&name) == Ok(false))
-                    .collect()
-            })
+            let count = self.get_controller_to_name_count(controller);
+
+            let names: Vec<String> = (0..count)
+                .filter_map(|idx| {
+                    let name = self
+                        .controller_to_names
+                        .get((controller, idx))
+                        .expect("Infallible");
+                    match self.has_name_expired(&name) {
+                        Ok(false) => Some(name),
+                        _ => None,
+                    }
+                })
+                .collect();
+
+            match names.is_empty() {
+                true => None,
+                false => Some(names),
+            }
         }
 
         #[ink(message)]
@@ -680,6 +698,12 @@ mod azns_registry {
         #[ink(message)]
         pub fn get_owner_to_name_count(&self, user: AccountId) -> u128 {
             self.owner_to_name_count.get(user).unwrap_or(0)
+        }
+
+        // @note count includes expired names as well
+        #[ink(message)]
+        pub fn get_controller_to_name_count(&self, user: AccountId) -> u128 {
+            self.controller_to_name_count.get(user).unwrap_or(0)
         }
 
         #[ink(message)]
@@ -930,9 +954,13 @@ mod azns_registry {
 
         /// Adds a name to controllers' collection
         fn add_name_to_controller(&mut self, controller: &AccountId, name: &str) {
-            let mut names = self.controller_to_names.get(controller).unwrap_or_default();
-            names.push(name.to_string());
-            self.controller_to_names.insert(&controller, &names);
+            let name = name.to_string();
+            let count = self.get_controller_to_name_count(*controller);
+
+            self.controller_to_names.insert((controller, &count), &name);
+            self.name_to_controller_index.insert(&name, &count);
+            self.controller_to_name_count
+                .insert(controller, &(count + 1));
         }
 
         /// Adds a name to resolvings' collection
@@ -966,10 +994,26 @@ mod azns_registry {
 
         /// Deletes a name from controllers' collection
         fn remove_name_from_controller(&mut self, controller: &AccountId, name: &str) {
-            self.controller_to_names.get(controller).map(|mut names| {
-                names.retain(|ele| ele != name);
-                self.controller_to_names.insert(&controller, &names);
-            });
+            let idx = self.name_to_controller_index.get(name).expect("Infallible");
+            let count = self.get_controller_to_name_count(*controller);
+
+            // if name is not stored at the last index
+            if idx != count - 1 {
+                // swap last index item to pos:idx
+                let last_name = self
+                    .controller_to_names
+                    .get((controller, (count - 1)))
+                    .expect("Infallible");
+                self.controller_to_names
+                    .insert((controller, idx), &last_name);
+                self.name_to_controller_index.insert(&last_name, &idx);
+            }
+
+            // remove last index
+            self.controller_to_names.remove((controller, count - 1));
+            self.name_to_controller_index.remove(name);
+            self.controller_to_name_count
+                .insert(controller, &(count - 1));
         }
 
         /// Deletes a name from resolvings' collection
