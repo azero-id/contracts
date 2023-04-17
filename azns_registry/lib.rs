@@ -609,10 +609,10 @@ mod azns_registry {
 
         /// Returns all names the address owns
         #[ink(message)]
-        pub fn get_owned_names_of_address(&self, owner: AccountId) -> Option<Vec<String>> {
+        pub fn get_owned_names_of_address(&self, owner: AccountId) -> Vec<String> {
             let count = self.get_owner_to_name_count(owner);
 
-            let names: Vec<String> = (0..count)
+            (0..count)
                 .filter_map(|idx| {
                     let name = self.owner_to_names.get((owner, idx)).expect("Infallible");
                     match self.has_name_expired(&name) {
@@ -620,22 +620,14 @@ mod azns_registry {
                         _ => None,
                     }
                 })
-                .collect();
-
-            match names.is_empty() {
-                true => None,
-                false => Some(names),
-            }
+                .collect()
         }
 
         #[ink(message)]
-        pub fn get_controlled_names_of_address(
-            &self,
-            controller: AccountId,
-        ) -> Option<Vec<String>> {
+        pub fn get_controlled_names_of_address(&self, controller: AccountId) -> Vec<String> {
             let count = self.get_controller_to_name_count(controller);
 
-            let names: Vec<String> = (0..count)
+            (0..count)
                 .filter_map(|idx| {
                     let name = self
                         .controller_to_names
@@ -646,19 +638,14 @@ mod azns_registry {
                         _ => None,
                     }
                 })
-                .collect();
-
-            match names.is_empty() {
-                true => None,
-                false => Some(names),
-            }
+                .collect()
         }
 
         #[ink(message)]
-        pub fn get_resolving_names_of_address(&self, address: AccountId) -> Option<Vec<String>> {
+        pub fn get_resolving_names_of_address(&self, address: AccountId) -> Vec<String> {
             let count = self.get_resolving_to_name_count(address);
 
-            let names: Vec<String> = (0..count)
+            (0..count)
                 .filter_map(|idx| {
                     let name = self
                         .resolving_to_names
@@ -669,12 +656,7 @@ mod azns_registry {
                         _ => None,
                     }
                 })
-                .collect();
-
-            match names.is_empty() {
-                true => None,
-                false => Some(names),
-            }
+                .collect()
         }
 
         #[ink(message)]
@@ -705,7 +687,6 @@ mod azns_registry {
             let set: ink::prelude::collections::BTreeSet<String> =
                 [resolved_names, controlled_names, owned_names]
                     .into_iter()
-                    .filter_map(|x| x)
                     .flatten()
                     .collect();
 
@@ -1207,7 +1188,7 @@ mod tests {
         /* getting all owned names should return all three */
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
-            Some(vec![name, name2, name3])
+            vec![name, name2, name3]
         );
     }
 
@@ -1249,7 +1230,7 @@ mod tests {
         /* getting all owned names should return all three */
         assert_eq!(
             contract.get_controlled_names_of_address(default_accounts.alice),
-            Some(vec![name, name2, name3])
+            vec![name, name2, name3]
         );
     }
 
@@ -1338,7 +1319,7 @@ mod tests {
         /* getting all names should return first two */
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(vec![name.clone(), name2.clone()])
+            vec![name.clone(), name2.clone()]
         );
 
         /* Register bar under bob, but set resolved address to alice */
@@ -1357,7 +1338,7 @@ mod tests {
         /* getting all resolving names should return all three names */
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(vec![name.clone(), name2.clone(), name3.clone()])
+            vec![name.clone(), name2.clone(), name3.clone()]
         );
 
         /* Remove the pointer to alice */
@@ -1366,7 +1347,7 @@ mod tests {
         /* getting all resolving names should return first two names */
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(vec![name, name2])
+            vec![name, name2]
         );
     }
 
@@ -1437,7 +1418,7 @@ mod tests {
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
-            Some(Vec::from([name.clone()]))
+            Vec::from([name.clone()])
         );
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         assert_eq!(
@@ -1532,11 +1513,9 @@ mod tests {
         assert_eq!(contract.register(name2, 1, None, None, false), Ok(()));
         assert!(contract
             .get_owned_names_of_address(default_accounts.alice)
-            .unwrap()
             .contains(&String::from("test")));
         assert!(contract
             .get_owned_names_of_address(default_accounts.alice)
-            .unwrap()
             .contains(&String::from("test2")));
     }
 
@@ -1626,15 +1605,15 @@ mod tests {
 
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
-            Some(Vec::from([name.clone()]))
+            Vec::from([name.clone()])
         );
         assert_eq!(
             contract.get_controlled_names_of_address(default_accounts.alice),
-            Some(Vec::from([name.clone()]))
+            Vec::from([name.clone()])
         );
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(Vec::from([name.clone()]))
+            Vec::from([name.clone()])
         );
 
         assert_eq!(contract.release(name.clone()), Ok(()));
@@ -1649,15 +1628,15 @@ mod tests {
 
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
-            Some(Vec::from([]))
+            Vec::<String>::new()
         );
         assert_eq!(
             contract.get_controlled_names_of_address(default_accounts.alice),
-            Some(vec![])
+            Vec::<String>::new()
         );
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(vec![])
+            Vec::<String>::new()
         );
 
         /* Another account can register again*/
@@ -1766,11 +1745,11 @@ mod tests {
 
         assert_eq!(
             contract.get_owned_names_of_address(accounts.alice),
-            Some(Vec::from([]))
+            Vec::<String>::new()
         );
         assert_eq!(
             contract.get_owned_names_of_address(accounts.bob),
-            Some(Vec::from([name.clone()]))
+            Vec::from([name.clone()])
         );
 
         // Alice is not the controller anymore
