@@ -109,7 +109,7 @@ mod azns_registry {
     }
 
     #[ink(storage)]
-    pub struct DomainNameService {
+    pub struct Registry {
         /// Admin of the contract can perform root operations
         admin: AccountId,
         /// Contract which verifies the validity of a name
@@ -123,7 +123,7 @@ mod azns_registry {
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
-        /// Mapping from name to its registration period (timestamp)
+        /// Mapping from name to its registration period (registration_timestamp, expiration_timestamp)
         name_to_period: Mapping<String, (u64, u64)>,
         /// Metadata
         metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
@@ -199,7 +199,7 @@ mod azns_registry {
         FeeError(azns_fee_calculator::Error),
     }
 
-    impl DomainNameService {
+    impl Registry {
         /// Creates a new AZNS contract.
         #[ink(constructor)]
         pub fn new(
@@ -409,7 +409,7 @@ mod azns_registry {
             keep_resolving: bool,
             data: Vec<u8>,
         ) -> core::result::Result<(), PSP34Error> {
-            self.transfer_for(
+            self.transfer_name(
                 to,
                 &name,
                 keep_metadata,
@@ -579,15 +579,8 @@ mod azns_registry {
         }
 
         #[ink(message)]
-        pub fn get_registration_date(&self, name: String) -> Result<u64> {
+        pub fn get_registration_period(&self, name: String) -> Result<(u64, u64)> {
             self.get_registration_period_ref(&name)
-                .map(|(registration, _)| registration)
-        }
-
-        #[ink(message)]
-        pub fn get_expiry_date(&self, name: String) -> Result<u64> {
-            self.get_registration_period_ref(&name)
-                .map(|(_, expiry)| expiry)
         }
 
         /// Gets all records
@@ -934,7 +927,7 @@ mod azns_registry {
             });
         }
 
-        fn transfer_for(
+        fn transfer_name(
             &mut self,
             to: AccountId,
             name: &str,
@@ -991,7 +984,6 @@ mod azns_registry {
             self.operator_approvals
                 .remove((&owner, &caller, &Some(id.clone())));
 
-            // TODO safe transfer check
             self.safe_transfer_check(&caller, &owner, &to, &id, &data)?;
 
             Self::env().emit_event(Transfer {
@@ -1003,6 +995,7 @@ mod azns_registry {
             Ok(())
         }
 
+        #[cfg_attr(test, allow(unused))]
         fn safe_transfer_check(
             &mut self,
             operator: &AccountId,
@@ -1199,7 +1192,7 @@ mod azns_registry {
         }
     }
 
-    impl PSP34 for DomainNameService {
+    impl PSP34 for Registry {
         // TLD is our collection id
         #[ink(message)]
         fn collection_id(&self) -> Id {
@@ -1277,7 +1270,7 @@ mod azns_registry {
             data: Vec<u8>,
         ) -> core::result::Result<(), PSP34Error> {
             let name: String = id.try_into()?;
-            self.transfer_for(to, &name, false, false, false, &data)
+            self.transfer_name(to, &name, false, false, false, &data)
         }
 
         #[ink(message)]
@@ -1286,7 +1279,7 @@ mod azns_registry {
         }
     }
 
-    impl PSP34Enumerable for DomainNameService {
+    impl PSP34Enumerable for Registry {
         #[ink(message)]
         fn owners_token_by_index(
             &self,
@@ -1307,7 +1300,7 @@ mod azns_registry {
         }
     }
 
-    impl PSP34Metadata for DomainNameService {
+    impl PSP34Metadata for Registry {
         #[ink(message)]
         fn get_attribute(&self, id: Id, key: Vec<u8>) -> Option<Vec<u8>> {
             match id.try_into() {
@@ -1322,7 +1315,7 @@ mod azns_registry {
         }
     }
 
-    impl Psp34Traits for DomainNameService {
+    impl Psp34Traits for Registry {
         #[ink(message)]
         fn get_owner(&self) -> AccountId {
             self.admin
@@ -1427,8 +1420,8 @@ mod tests {
         set_caller::<DefaultEnvironment>(caller);
     }
 
-    fn get_test_name_service() -> DomainNameService {
-        DomainNameService::new(
+    fn get_test_name_service() -> Registry {
+        Registry::new(
             default_accounts().alice,
             None,
             None,
@@ -2370,7 +2363,7 @@ mod tests {
         let accounts = default_accounts();
         let reserved_list = vec![("bob".to_string(), Some(accounts.bob))];
 
-        let mut contract = DomainNameService::new(
+        let mut contract = Registry::new(
             default_accounts().alice,
             None,
             None,
