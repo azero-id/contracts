@@ -113,7 +113,10 @@ mod azns_registry {
         metadata_size_limit: Option<u32>,
 
         /// All names an address owns
-        owner_to_names: Mapping<AccountId, Vec<String>, ManualKey<300>>,
+        owner_to_name_count: Mapping<AccountId, u128>,
+        owner_to_names: Mapping<(AccountId, u128), String, ManualKey<300>>,
+        name_to_owner_index: Mapping<String, u128>,
+
         /// All names an address controls
         controller_to_names: Mapping<AccountId, Vec<String>, ManualKey<301>>,
         /// All names that resolve to the given address
@@ -207,7 +210,9 @@ mod azns_registry {
                 fee_calculator,
                 name_to_address_dict: Mapping::default(),
                 name_to_expiry: Mapping::default(),
+                owner_to_name_count: Default::default(),
                 owner_to_names: Default::default(),
+                name_to_owner_index: Default::default(),
                 metadata: Default::default(),
                 address_to_primary_name: Default::default(),
                 controller_to_names: Default::default(),
@@ -270,7 +275,7 @@ mod azns_registry {
                 }
 
                 // Verify this is the first claim of the user
-                if self.owner_to_names.contains(caller) {
+                if self.owner_to_name_count.contains(caller) {
                     return Err(Error::AlreadyClaimed);
                 }
 
@@ -595,12 +600,22 @@ mod azns_registry {
         /// Returns all names the address owns
         #[ink(message)]
         pub fn get_owned_names_of_address(&self, owner: AccountId) -> Option<Vec<String>> {
-            self.owner_to_names.get(owner).map(|names| {
-                names
-                    .into_iter()
-                    .filter(|name| self.has_name_expired(&name) == Ok(false))
-                    .collect()
-            })
+            let count = self.get_owner_to_name_count(owner);
+
+            let names: Vec<String> = (0..count)
+                .filter_map(|idx| {
+                    let name = self.owner_to_names.get((owner, idx)).expect("Infallible");
+                    match self.has_name_expired(&name) {
+                        Ok(false) => Some(name),
+                        _ => None,
+                    }
+                })
+                .collect();
+
+            match names.is_empty() {
+                true => None,
+                false => Some(names),
+            }
         }
 
         #[ink(message)]
@@ -659,6 +674,12 @@ mod azns_registry {
                     .collect();
 
             set.into_iter().collect()
+        }
+
+        // @note count includes expired names as well
+        #[ink(message)]
+        pub fn get_owner_to_name_count(&self, user: AccountId) -> u128 {
+            self.owner_to_name_count.get(user).unwrap_or(0)
         }
 
         #[ink(message)]
@@ -899,9 +920,12 @@ mod azns_registry {
 
         /// Adds a name to owners' collection
         fn add_name_to_owner(&mut self, owner: &AccountId, name: &str) {
-            let mut names = self.owner_to_names.get(owner).unwrap_or_default();
-            names.push(name.to_string());
-            self.owner_to_names.insert(&owner, &names);
+            let name = name.to_string();
+            let count = self.get_owner_to_name_count(*owner);
+
+            self.owner_to_names.insert((owner, &count), &name);
+            self.name_to_owner_index.insert(&name, &count);
+            self.owner_to_name_count.insert(owner, &(count + 1));
         }
 
         /// Adds a name to controllers' collection
@@ -920,11 +944,24 @@ mod azns_registry {
 
         /// Deletes a name from owner
         fn remove_name_from_owner(&mut self, owner: &AccountId, name: &str) {
-            if let Some(old_names) = self.owner_to_names.get(owner) {
-                let mut new_names: Vec<String> = old_names;
-                new_names.retain(|prevname| prevname != name);
-                self.owner_to_names.insert(owner, &new_names);
+            let idx = self.name_to_owner_index.get(name).expect("Infallible");
+            let count = self.get_owner_to_name_count(*owner);
+
+            // if name is not stored at the last index
+            if idx != count - 1 {
+                // swap last index item to pos:idx
+                let last_name = self
+                    .owner_to_names
+                    .get((owner, (count - 1)))
+                    .expect("Infallible");
+                self.owner_to_names.insert((owner, idx), &last_name);
+                self.name_to_owner_index.insert(&last_name, &idx);
             }
+
+            // remove last index
+            self.owner_to_names.remove((owner, count - 1));
+            self.name_to_owner_index.remove(name);
+            self.owner_to_name_count.insert(owner, &(count - 1));
         }
 
         /// Deletes a name from controllers' collection
