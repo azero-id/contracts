@@ -113,24 +113,24 @@ mod azns_registry {
         metadata_size_limit: Option<u32>,
 
         /// All names an address owns
-        owner_to_name_count: Mapping<AccountId, u128>,
-        owner_to_names: Mapping<(AccountId, u128), String, ManualKey<300>>,
-        name_to_owner_index: Mapping<String, u128>,
+        owner_to_name_count: Mapping<AccountId, u128, ManualKey<300>>,
+        owner_to_names: Mapping<(AccountId, u128), String, ManualKey<301>>,
+        name_to_owner_index: Mapping<String, u128, ManualKey<302>>,
 
         /// All names an address controls
-        controller_to_name_count: Mapping<AccountId, u128>,
-        controller_to_names: Mapping<(AccountId, u128), String, ManualKey<301>>,
-        name_to_controller_index: Mapping<String, u128>,
+        controller_to_name_count: Mapping<AccountId, u128, ManualKey<310>>,
+        controller_to_names: Mapping<(AccountId, u128), String, ManualKey<311>>,
+        name_to_controller_index: Mapping<String, u128, ManualKey<312>>,
 
         /// All names that resolve to the given address
-        resolving_to_name_count: Mapping<AccountId, u128>,
-        resolving_to_names: Mapping<(AccountId, u128), String, ManualKey<302>>,
-        name_to_resolving_index: Mapping<String, u128>,
+        resolving_to_name_count: Mapping<AccountId, u128, ManualKey<320>>,
+        resolving_to_names: Mapping<(AccountId, u128), String, ManualKey<321>>,
+        name_to_resolving_index: Mapping<String, u128, ManualKey<323>>,
 
         /// Primary name record
         /// IMPORTANT NOTE: This mapping may be out-of-date, since we don't update it when a resolved address changes, or when a name is withdrawn.
         /// Only use the get_primary_name
-        address_to_primary_name: Mapping<AccountId, String, ManualKey<303>>,
+        address_to_primary_name: Mapping<AccountId, String, ManualKey<399>>,
 
         /// Merkle Verifier used to identifiy whitelisted addresses
         whitelisted_address_verifier: Lazy<Option<MerkleVerifierRef>, ManualKey<999>>,
