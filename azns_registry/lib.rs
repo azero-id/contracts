@@ -123,7 +123,10 @@ mod azns_registry {
         name_to_controller_index: Mapping<String, u128>,
 
         /// All names that resolve to the given address
-        resolving_to_address: Mapping<AccountId, Vec<String>, ManualKey<302>>,
+        resolving_to_name_count: Mapping<AccountId, u128>,
+        resolving_to_names: Mapping<(AccountId, u128), String, ManualKey<302>>,
+        name_to_resolving_index: Mapping<String, u128>,
+
         /// Primary name record
         /// IMPORTANT NOTE: This mapping may be out-of-date, since we don't update it when a resolved address changes, or when a name is withdrawn.
         /// Only use the get_primary_name
@@ -221,7 +224,9 @@ mod azns_registry {
                 controller_to_name_count: Default::default(),
                 controller_to_names: Default::default(),
                 name_to_controller_index: Default::default(),
-                resolving_to_address: Default::default(),
+                resolving_to_name_count: Default::default(),
+                resolving_to_names: Default::default(),
+                name_to_resolving_index: Default::default(),
                 whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
                 tld,
@@ -651,12 +656,25 @@ mod azns_registry {
 
         #[ink(message)]
         pub fn get_resolving_names_of_address(&self, address: AccountId) -> Option<Vec<String>> {
-            self.resolving_to_address.get(address).map(|names| {
-                names
-                    .into_iter()
-                    .filter(|name| self.has_name_expired(&name) == Ok(false))
-                    .collect()
-            })
+            let count = self.get_resolving_to_name_count(address);
+
+            let names: Vec<String> = (0..count)
+                .filter_map(|idx| {
+                    let name = self
+                        .resolving_to_names
+                        .get((address, idx))
+                        .expect("Infallible");
+                    match self.has_name_expired(&name) {
+                        Ok(false) => Some(name),
+                        _ => None,
+                    }
+                })
+                .collect();
+
+            match names.is_empty() {
+                true => None,
+                false => Some(names),
+            }
         }
 
         #[ink(message)]
@@ -704,6 +722,12 @@ mod azns_registry {
         #[ink(message)]
         pub fn get_controller_to_name_count(&self, user: AccountId) -> u128 {
             self.controller_to_name_count.get(user).unwrap_or(0)
+        }
+
+        // @note count includes expired names as well
+        #[ink(message)]
+        pub fn get_resolving_to_name_count(&self, user: AccountId) -> u128 {
+            self.resolving_to_name_count.get(user).unwrap_or(0)
         }
 
         #[ink(message)]
@@ -965,9 +989,12 @@ mod azns_registry {
 
         /// Adds a name to resolvings' collection
         fn add_name_to_resolving(&mut self, resolving: &AccountId, name: &str) {
-            let mut names = self.resolving_to_address.get(resolving).unwrap_or_default();
-            names.push(name.to_string());
-            self.resolving_to_address.insert(&resolving, &names);
+            let name = name.to_string();
+            let count = self.get_resolving_to_name_count(*resolving);
+
+            self.resolving_to_names.insert((resolving, &count), &name);
+            self.name_to_resolving_index.insert(&name, &count);
+            self.resolving_to_name_count.insert(resolving, &(count + 1));
         }
 
         /// Deletes a name from owner
@@ -1018,10 +1045,24 @@ mod azns_registry {
 
         /// Deletes a name from resolvings' collection
         fn remove_name_from_resolving(&mut self, resolving: &AccountId, name: &str) {
-            self.resolving_to_address.get(resolving).map(|mut names| {
-                names.retain(|ele| ele != name);
-                self.resolving_to_address.insert(&resolving, &names);
-            });
+            let idx = self.name_to_resolving_index.get(name).expect("Infallible");
+            let count = self.get_resolving_to_name_count(*resolving);
+
+            // if name is not stored at the last index
+            if idx != count - 1 {
+                // swap last index item to pos:idx
+                let last_name = self
+                    .resolving_to_names
+                    .get((resolving, (count - 1)))
+                    .expect("Infallible");
+                self.resolving_to_names.insert((resolving, idx), &last_name);
+                self.name_to_resolving_index.insert(&last_name, &idx);
+            }
+
+            // remove last index
+            self.resolving_to_names.remove((resolving, count - 1));
+            self.name_to_resolving_index.remove(name);
+            self.resolving_to_name_count.insert(resolving, &(count - 1));
         }
 
         fn is_name_allowed(&self, name: &str) -> bool {
@@ -1273,7 +1314,7 @@ mod tests {
     }
 
     #[ink::test]
-    fn resolving_to_address_works() {
+    fn resolving_to_names_works() {
         let default_accounts = default_accounts();
         let name = String::from("test");
         let name2 = String::from("foo");
