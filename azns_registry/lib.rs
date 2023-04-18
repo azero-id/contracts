@@ -1190,6 +1190,22 @@ mod azns_registry {
                 None => Err(Error::NameDoesntExist),
             }
         }
+
+        fn get_static_attribute_ref(&self, name: &str, key: &str) -> Option<String> {
+            match key {
+                "TLD" => Some(self.tld.clone()),
+                "Length" => Some(name.chars().count().to_string()),
+                "Registration" => Some(match self.get_registration_period_ref(&name) {
+                    Ok(period) => period.0.to_string(),
+                    _ => String::new(),
+                }),
+                "Expiration" => Some(match self.get_registration_period_ref(&name) {
+                    Ok(period) => period.1.to_string(),
+                    _ => String::new(),
+                }),
+                _ => None,
+            }
+        }
     }
 
     impl PSP34 for Registry {
@@ -1303,12 +1319,14 @@ mod azns_registry {
     impl PSP34Metadata for Registry {
         #[ink(message)]
         fn get_attribute(&self, id: Id, key: Vec<u8>) -> Option<Vec<u8>> {
-            match id.try_into() {
+            match TryInto::<String>::try_into(id) {
                 Ok(name) => {
                     let Ok(key) = String::from_utf8(key) else {
                         return None;
                     };
-                    self.get_record(name, key).map(|val| val.into_bytes()).ok()
+
+                    self.get_static_attribute_ref(&name, &key)
+                        .map(|s| s.into_bytes())
                 }
                 Err(_) => None,
             }
@@ -1372,18 +1390,9 @@ mod azns_registry {
 
             attributes
                 .into_iter()
-                .map(|key| match key.as_str() {
-                    "TLD" => self.tld.clone(),
-                    "Length" => name.chars().count().to_string(),
-                    "Registration" => match self.get_registration_period_ref(&name) {
-                        Ok(period) => period.0.to_string(),
-                        _ => String::new(),
-                    },
-                    "Expiration" => match self.get_registration_period_ref(&name) {
-                        Ok(period) => period.1.to_string(),
-                        _ => String::new(),
-                    },
-                    _ => "".to_string(),
+                .map(|key| {
+                    self.get_static_attribute_ref(&name, &key)
+                        .unwrap_or_default()
                 })
                 .collect()
         }
