@@ -128,15 +128,24 @@ mod azns_registry {
         metadata_size_limit: Option<u32>,
 
         /// All names an address owns
-        owner_to_names: Mapping<AccountId, Vec<String>, ManualKey<300>>,
+        owner_to_name_count: Mapping<AccountId, u128, ManualKey<300>>,
+        owner_to_names: Mapping<(AccountId, u128), String, ManualKey<301>>,
+        name_to_owner_index: Mapping<String, u128, ManualKey<302>>,
+
         /// All names an address controls
-        controller_to_names: Mapping<AccountId, Vec<String>, ManualKey<301>>,
+        controller_to_name_count: Mapping<AccountId, u128, ManualKey<310>>,
+        controller_to_names: Mapping<(AccountId, u128), String, ManualKey<311>>,
+        name_to_controller_index: Mapping<String, u128, ManualKey<312>>,
+
         /// All names that resolve to the given address
-        resolving_to_address: Mapping<AccountId, Vec<String>, ManualKey<302>>,
+        resolving_to_name_count: Mapping<AccountId, u128, ManualKey<320>>,
+        resolving_to_names: Mapping<(AccountId, u128), String, ManualKey<321>>,
+        name_to_resolving_index: Mapping<String, u128, ManualKey<323>>,
+
         /// Primary name record
         /// IMPORTANT NOTE: This mapping may be out-of-date, since we don't update it when a resolved address changes, or when a name is withdrawn.
         /// Only use the get_primary_name
-        address_to_primary_name: Mapping<AccountId, String, ManualKey<303>>,
+        address_to_primary_name: Mapping<AccountId, String, ManualKey<399>>,
 
         /// Merkle Verifier used to identifiy whitelisted addresses
         whitelisted_address_verifier: Lazy<Option<MerkleVerifierRef>, ManualKey<999>>,
@@ -227,11 +236,17 @@ mod azns_registry {
                 fee_calculator,
                 name_to_address_dict: Mapping::default(),
                 name_to_period: Mapping::default(),
+                owner_to_name_count: Default::default(),
                 owner_to_names: Default::default(),
+                name_to_owner_index: Default::default(),
                 metadata: Default::default(),
                 address_to_primary_name: Default::default(),
+                controller_to_name_count: Default::default(),
                 controller_to_names: Default::default(),
-                resolving_to_address: Default::default(),
+                name_to_controller_index: Default::default(),
+                resolving_to_name_count: Default::default(),
+                resolving_to_names: Default::default(),
+                name_to_resolving_index: Default::default(),
                 whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
                 operator_approvals: Default::default(),
@@ -293,7 +308,7 @@ mod azns_registry {
                 }
 
                 // Verify this is the first claim of the user
-                if self.owner_to_names.contains(caller) {
+                if self.owner_to_name_count.contains(caller) {
                     return Err(Error::AlreadyClaimed);
                 }
 
@@ -599,36 +614,54 @@ mod azns_registry {
 
         /// Returns all names the address owns
         #[ink(message)]
-        pub fn get_owned_names_of_address(&self, owner: AccountId) -> Option<Vec<String>> {
-            self.owner_to_names.get(owner).map(|names| {
-                names
-                    .into_iter()
-                    .filter(|name| self.has_name_expired(&name) == Ok(false))
-                    .collect()
-            })
+        pub fn get_owned_names_of_address(&self, owner: AccountId) -> Vec<String> {
+            let count = self.get_owner_to_name_count(owner);
+
+            (0..count)
+                .filter_map(|idx| {
+                    let name = self.owner_to_names.get((owner, idx)).expect("Infallible");
+                    match self.has_name_expired(&name) {
+                        Ok(false) => Some(name),
+                        _ => None,
+                    }
+                })
+                .collect()
         }
 
         #[ink(message)]
-        pub fn get_controlled_names_of_address(
-            &self,
-            controller: AccountId,
-        ) -> Option<Vec<String>> {
-            self.controller_to_names.get(controller).map(|names| {
-                names
-                    .into_iter()
-                    .filter(|name| self.has_name_expired(&name) == Ok(false))
-                    .collect()
-            })
+        pub fn get_controlled_names_of_address(&self, controller: AccountId) -> Vec<String> {
+            let count = self.get_controller_to_name_count(controller);
+
+            (0..count)
+                .filter_map(|idx| {
+                    let name = self
+                        .controller_to_names
+                        .get((controller, idx))
+                        .expect("Infallible");
+                    match self.has_name_expired(&name) {
+                        Ok(false) => Some(name),
+                        _ => None,
+                    }
+                })
+                .collect()
         }
 
         #[ink(message)]
-        pub fn get_resolving_names_of_address(&self, address: AccountId) -> Option<Vec<String>> {
-            self.resolving_to_address.get(address).map(|names| {
-                names
-                    .into_iter()
-                    .filter(|name| self.has_name_expired(&name) == Ok(false))
-                    .collect()
-            })
+        pub fn get_resolving_names_of_address(&self, address: AccountId) -> Vec<String> {
+            let count = self.get_resolving_to_name_count(address);
+
+            (0..count)
+                .filter_map(|idx| {
+                    let name = self
+                        .resolving_to_names
+                        .get((address, idx))
+                        .expect("Infallible");
+                    match self.has_name_expired(&name) {
+                        Ok(false) => Some(name),
+                        _ => None,
+                    }
+                })
+                .collect()
         }
 
         #[ink(message)]
@@ -659,11 +692,28 @@ mod azns_registry {
             let set: ink::prelude::collections::BTreeSet<String> =
                 [resolved_names, controlled_names, owned_names]
                     .into_iter()
-                    .filter_map(|x| x)
                     .flatten()
                     .collect();
 
             set.into_iter().collect()
+        }
+
+        // @note count includes expired names as well
+        #[ink(message)]
+        pub fn get_owner_to_name_count(&self, user: AccountId) -> u128 {
+            self.owner_to_name_count.get(user).unwrap_or(0)
+        }
+
+        // @note count includes expired names as well
+        #[ink(message)]
+        pub fn get_controller_to_name_count(&self, user: AccountId) -> u128 {
+            self.controller_to_name_count.get(user).unwrap_or(0)
+        }
+
+        // @note count includes expired names as well
+        #[ink(message)]
+        pub fn get_resolving_to_name_count(&self, user: AccountId) -> u128 {
+            self.resolving_to_name_count.get(user).unwrap_or(0)
         }
 
         #[ink(message)]
@@ -1066,48 +1116,101 @@ mod azns_registry {
 
         /// Adds a name to owners' collection
         fn add_name_to_owner(&mut self, owner: &AccountId, name: &str) {
-            let mut names = self.owner_to_names.get(owner).unwrap_or_default();
-            names.push(name.to_string());
-            self.owner_to_names.insert(&owner, &names);
+            let name = name.to_string();
+            let count = self.get_owner_to_name_count(*owner);
+
+            self.owner_to_names.insert((owner, &count), &name);
+            self.name_to_owner_index.insert(&name, &count);
+            self.owner_to_name_count.insert(owner, &(count + 1));
         }
 
         /// Adds a name to controllers' collection
         fn add_name_to_controller(&mut self, controller: &AccountId, name: &str) {
-            let mut names = self.controller_to_names.get(controller).unwrap_or_default();
-            names.push(name.to_string());
-            self.controller_to_names.insert(&controller, &names);
+            let name = name.to_string();
+            let count = self.get_controller_to_name_count(*controller);
+
+            self.controller_to_names.insert((controller, &count), &name);
+            self.name_to_controller_index.insert(&name, &count);
+            self.controller_to_name_count
+                .insert(controller, &(count + 1));
         }
 
         /// Adds a name to resolvings' collection
         fn add_name_to_resolving(&mut self, resolving: &AccountId, name: &str) {
-            let mut names = self.resolving_to_address.get(resolving).unwrap_or_default();
-            names.push(name.to_string());
-            self.resolving_to_address.insert(&resolving, &names);
+            let name = name.to_string();
+            let count = self.get_resolving_to_name_count(*resolving);
+
+            self.resolving_to_names.insert((resolving, &count), &name);
+            self.name_to_resolving_index.insert(&name, &count);
+            self.resolving_to_name_count.insert(resolving, &(count + 1));
         }
 
         /// Deletes a name from owner
         fn remove_name_from_owner(&mut self, owner: &AccountId, name: &str) {
-            if let Some(old_names) = self.owner_to_names.get(owner) {
-                let mut new_names: Vec<String> = old_names;
-                new_names.retain(|prevname| prevname != name);
-                self.owner_to_names.insert(owner, &new_names);
+            let idx = self.name_to_owner_index.get(name).expect("Infallible");
+            let count = self.get_owner_to_name_count(*owner);
+
+            // if name is not stored at the last index
+            if idx != count - 1 {
+                // swap last index item to pos:idx
+                let last_name = self
+                    .owner_to_names
+                    .get((owner, (count - 1)))
+                    .expect("Infallible");
+                self.owner_to_names.insert((owner, idx), &last_name);
+                self.name_to_owner_index.insert(&last_name, &idx);
             }
+
+            // remove last index
+            self.owner_to_names.remove((owner, count - 1));
+            self.name_to_owner_index.remove(name);
+            self.owner_to_name_count.insert(owner, &(count - 1));
         }
 
         /// Deletes a name from controllers' collection
         fn remove_name_from_controller(&mut self, controller: &AccountId, name: &str) {
-            self.controller_to_names.get(controller).map(|mut names| {
-                names.retain(|ele| ele != name);
-                self.controller_to_names.insert(&controller, &names);
-            });
+            let idx = self.name_to_controller_index.get(name).expect("Infallible");
+            let count = self.get_controller_to_name_count(*controller);
+
+            // if name is not stored at the last index
+            if idx != count - 1 {
+                // swap last index item to pos:idx
+                let last_name = self
+                    .controller_to_names
+                    .get((controller, (count - 1)))
+                    .expect("Infallible");
+                self.controller_to_names
+                    .insert((controller, idx), &last_name);
+                self.name_to_controller_index.insert(&last_name, &idx);
+            }
+
+            // remove last index
+            self.controller_to_names.remove((controller, count - 1));
+            self.name_to_controller_index.remove(name);
+            self.controller_to_name_count
+                .insert(controller, &(count - 1));
         }
 
         /// Deletes a name from resolvings' collection
         fn remove_name_from_resolving(&mut self, resolving: &AccountId, name: &str) {
-            self.resolving_to_address.get(resolving).map(|mut names| {
-                names.retain(|ele| ele != name);
-                self.resolving_to_address.insert(&resolving, &names);
-            });
+            let idx = self.name_to_resolving_index.get(name).expect("Infallible");
+            let count = self.get_resolving_to_name_count(*resolving);
+
+            // if name is not stored at the last index
+            if idx != count - 1 {
+                // swap last index item to pos:idx
+                let last_name = self
+                    .resolving_to_names
+                    .get((resolving, (count - 1)))
+                    .expect("Infallible");
+                self.resolving_to_names.insert((resolving, idx), &last_name);
+                self.name_to_resolving_index.insert(&last_name, &idx);
+            }
+
+            // remove last index
+            self.resolving_to_names.remove((resolving, count - 1));
+            self.name_to_resolving_index.remove(name);
+            self.resolving_to_name_count.insert(resolving, &(count - 1));
         }
 
         fn is_name_allowed(&self, name: &str) -> bool {
@@ -1215,9 +1318,7 @@ mod azns_registry {
 
         #[ink(message)]
         fn balance_of(&self, owner: AccountId) -> u32 {
-            self.get_owned_names_of_address(owner)
-                .unwrap_or_default()
-                .len() as u32
+            self.get_owned_names_of_address(owner).len() as u32
         }
 
         #[ink(message)]
@@ -1300,7 +1401,7 @@ mod azns_registry {
             owner: AccountId,
             index: u128,
         ) -> core::result::Result<Id, PSP34Error> {
-            let tokens = self.get_owned_names_of_address(owner).unwrap_or_default();
+            let tokens = self.get_owned_names_of_address(owner);
 
             match tokens.get(index as usize) {
                 Some(name) => Ok(name.clone().into()),
@@ -1472,7 +1573,7 @@ mod tests {
         /* getting all owned names should return all three */
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
-            Some(vec![name, name2, name3])
+            vec![name, name2, name3]
         );
     }
 
@@ -1514,7 +1615,7 @@ mod tests {
         /* getting all owned names should return all three */
         assert_eq!(
             contract.get_controlled_names_of_address(default_accounts.alice),
-            Some(vec![name, name2, name3])
+            vec![name, name2, name3]
         );
     }
 
@@ -1579,7 +1680,7 @@ mod tests {
     }
 
     #[ink::test]
-    fn resolving_to_address_works() {
+    fn resolving_to_names_works() {
         let default_accounts = default_accounts();
         let name = String::from("test");
         let name2 = String::from("foo");
@@ -1603,7 +1704,7 @@ mod tests {
         /* getting all names should return first two */
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(vec![name.clone(), name2.clone()])
+            vec![name.clone(), name2.clone()]
         );
 
         /* Register bar under bob, but set resolved address to alice */
@@ -1622,7 +1723,7 @@ mod tests {
         /* getting all resolving names should return all three names */
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(vec![name.clone(), name2.clone(), name3.clone()])
+            vec![name.clone(), name2.clone(), name3.clone()]
         );
 
         /* Remove the pointer to alice */
@@ -1631,7 +1732,7 @@ mod tests {
         /* getting all resolving names should return first two names */
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(vec![name, name2])
+            vec![name, name2]
         );
     }
 
@@ -1702,7 +1803,7 @@ mod tests {
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
-            Some(Vec::from([name.clone()]))
+            Vec::from([name.clone()])
         );
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         assert_eq!(
@@ -1797,11 +1898,9 @@ mod tests {
         assert_eq!(contract.register(name2, 1, None, None, false), Ok(()));
         assert!(contract
             .get_owned_names_of_address(default_accounts.alice)
-            .unwrap()
             .contains(&String::from("test")));
         assert!(contract
             .get_owned_names_of_address(default_accounts.alice)
-            .unwrap()
             .contains(&String::from("test2")));
     }
 
@@ -1891,15 +1990,15 @@ mod tests {
 
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
-            Some(Vec::from([name.clone()]))
+            Vec::from([name.clone()])
         );
         assert_eq!(
             contract.get_controlled_names_of_address(default_accounts.alice),
-            Some(Vec::from([name.clone()]))
+            Vec::from([name.clone()])
         );
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(Vec::from([name.clone()]))
+            Vec::from([name.clone()])
         );
 
         assert_eq!(contract.release(name.clone()), Ok(()));
@@ -1914,15 +2013,15 @@ mod tests {
 
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
-            Some(Vec::from([]))
+            Vec::<String>::new()
         );
         assert_eq!(
             contract.get_controlled_names_of_address(default_accounts.alice),
-            Some(vec![])
+            Vec::<String>::new()
         );
         assert_eq!(
             contract.get_resolving_names_of_address(default_accounts.alice),
-            Some(vec![])
+            Vec::<String>::new()
         );
 
         /* Another account can register again*/
@@ -2034,11 +2133,11 @@ mod tests {
 
         assert_eq!(
             contract.get_owned_names_of_address(accounts.alice),
-            Some(Vec::from([]))
+            Vec::<String>::new()
         );
         assert_eq!(
             contract.get_owned_names_of_address(accounts.bob),
-            Some(Vec::from([name.clone()]))
+            Vec::from([name.clone()])
         );
 
         // Alice is not the controller anymore
