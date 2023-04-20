@@ -165,7 +165,7 @@ mod azns_registry {
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
         /// Mapping from name to its registration period (registration_timestamp, expiration_timestamp)
-        name_to_period: Mapping<String, (u64, u64)>,
+        name_to_period: Mapping<String, (u64, u64), ManualKey<202>>,
         /// Metadata
         metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
         metadata_size_limit: Option<u32>,
@@ -257,10 +257,8 @@ mod azns_registry {
             name_checker_addr: Option<AccountId>,
             fee_calculator_addr: Option<AccountId>,
             merkle_verifier_addr: Option<AccountId>,
-            reserved_names: Option<Vec<(String, Option<AccountId>)>>,
             tld: String,
             base_uri: String,
-            metadata_size_limit: Option<u32>,
         ) -> Self {
             // Initializing NameChecker
             let name_checker = name_checker_addr.map(|addr| NameCheckerRef::from_account_id(addr));
@@ -295,7 +293,7 @@ mod azns_registry {
                 operator_approvals: Default::default(),
                 tld,
                 base_uri,
-                metadata_size_limit,
+                metadata_size_limit: None,
                 total_supply: 0,
             };
 
@@ -303,13 +301,6 @@ mod azns_registry {
             contract
                 .whitelisted_address_verifier
                 .set(&whitelisted_address_verifier);
-
-            // Initializing reserved names
-            if let Some(set) = reserved_names {
-                contract
-                    .add_reserved_names(set)
-                    .expect("Invalid reserve name detected");
-            }
 
             // No Whitelist phase
             if merkle_verifier_addr == None {
@@ -1394,7 +1385,8 @@ mod azns_registry {
         // TLD is our collection id
         #[ink(message)]
         fn collection_id(&self) -> Id {
-            self.tld.clone().into()
+            let id = ".".to_string() + &self.tld.to_ascii_uppercase() + " Domains";
+            id.into()
         }
 
         #[ink(message)]
@@ -1615,10 +1607,8 @@ mod tests {
             None,
             None,
             None,
-            None,
             "azero".to_string(),
             "ipfs://05121999/".to_string(),
-            None,
         )
     }
 
@@ -2555,11 +2545,11 @@ mod tests {
             None,
             None,
             None,
-            Some(reserved_list),
             "azero".to_string(),
             "ipfs://05121999/".to_string(),
-            None,
         );
+
+        contract.add_reserved_names(reserved_list).unwrap();
 
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         contract
