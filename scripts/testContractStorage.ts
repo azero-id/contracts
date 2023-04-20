@@ -33,6 +33,9 @@ dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
  * Example #3: `DOMAIN_COUNT=1 METADATA_SIZE_LIMIT=8000 METADATA_ROW_COUNT=120 METADATA_ITEM_SIZE=32 pnpm ts-node scripts/testContractStorage.ts`
  *   - Tests metadata size limits by creating a domain with 120 metadata rows with 64 characters each (32 key & 32 value).
  *   - Fails with lower `METADATA_SIZE_LIMIT` or higher `METADATA_ROW_COUNT` or `METADATA_ITEM_SIZE` (2×32×120 ⪅ 8000 bytes).
+ *
+ * Example #4: `REGISTRY_ADDRESS=5fei… DIR=../indexer/src/deployments CHAIN=alephzero-testnet DOMAIN_PRICE=6 DOMAIN_COUNT=10 pnpm ts-node scripts/testContractStorage.ts`
+ *   - Uses a previously deployed registry contract at a different directory with given domain price.
  */
 const main = async () => {
   const chain = getSubstrateChain(chainId)
@@ -41,18 +44,26 @@ const main = async () => {
   const initParams = await initPolkadotJs(chain, accountUri)
   const { api, decimals, account, keyring } = initParams
 
-  // Deploy all contracts
-  const { address: nameCheckerAddress } = await deployNameChecker(initParams)
-  const { address: feeCalculatorAddress } = await deployFeeCalculator(initParams, {
-    commonPrice: new BN(0),
-  })
-  const metadataSizeLimit = new BN(parseInt(process.env.METADATA_SIZE_LIMIT ?? '8000'))
-  const { address: registryAddress } = await deployRegistry(initParams, {
-    nameCheckerAddress,
-    feeCalculatorAddress,
-    merkleVerifierAddress: null,
-    metadataSizeLimit,
-  })
+  // Determine registry address
+  let registryAddress = process.env.REGISTRY_ADDRESS || null
+  let domainPrice: any = process.env.DOMAIN_PRICE || 0
+  domainPrice = new BN(domainPrice).mul(new BN(10 ** decimals))
+
+  // Deploy all contracts if no registry address is provided
+  if (!registryAddress) {
+    const { address: nameCheckerAddress } = await deployNameChecker(initParams)
+    const { address: feeCalculatorAddress } = await deployFeeCalculator(initParams, {
+      commonPrice: domainPrice,
+    })
+    const metadataSizeLimit = new BN(parseInt(process.env.METADATA_SIZE_LIMIT ?? '8000'))
+    const { address } = await deployRegistry(initParams, {
+      nameCheckerAddress,
+      feeCalculatorAddress,
+      merkleVerifierAddress: null,
+      metadataSizeLimit,
+    })
+    registryAddress = address
+  }
 
   // Create registry contract instance
   const { abi } = await getDeploymentData('azns_registry')
@@ -93,12 +104,12 @@ const main = async () => {
       // Generate & fund random account
       if (USE_RANDOM_ACCOUNTS) {
         domainAccount = keyring.addFromUri('//' + domainName)
-        const one = new BN(1).mul(new BN(10 ** decimals))
-        await transferBalance(api, account, domainAccount.address, one)
+        const amount = new BN(1).mul(new BN(10 ** decimals)).add(domainPrice)
+        await transferBalance(api, account, domainAccount.address, amount)
       }
 
       // Register domain
-      await registerDomain(api, domainAccount, contract, domainName)
+      await registerDomain(api, domainAccount, contract, domainPrice, domainName)
 
       // Add metadata to domain
       await setDomainSampleMetadata(api, domainAccount, contract, domainName, META_COUNT, META_SIZE)
@@ -127,9 +138,9 @@ const main = async () => {
 /**
  * Helper function to register a domain.
  */
-const registerDomain = async (api, account, contract, domainName) => {
+const registerDomain = async (api, account, contract, domainPrice, domainName) => {
   try {
-    await contractTx(api, account, contract, 'register', { value: new BN(0) }, [
+    await contractTx(api, account, contract, 'register', { value: domainPrice }, [
       domainName,
       1,
       null,

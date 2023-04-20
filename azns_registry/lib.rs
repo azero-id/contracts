@@ -11,6 +11,8 @@ mod azns_registry {
     use ink::prelude::vec::Vec;
     use ink::storage::traits::ManualKey;
     use ink::storage::{Lazy, Mapping};
+    use interfaces::art_zero_traits::*;
+    use interfaces::psp34_standard::*;
 
     use azns_fee_calculator::FeeCalculatorRef;
     use azns_merkle_verifier::MerkleVerifierRef;
@@ -67,16 +69,27 @@ mod azns_registry {
         new_address: AccountId,
     }
 
-    /// Emitted whenever a name is transferred.
+    /// Event emitted when a token transfer occurs.
     #[ink(event)]
     pub struct Transfer {
         #[ink(topic)]
-        name: String,
-        from: AccountId,
+        from: Option<AccountId>,
         #[ink(topic)]
-        old_owner: Option<AccountId>,
+        to: Option<AccountId>,
         #[ink(topic)]
-        new_owner: AccountId,
+        id: Id,
+    }
+
+    /// Event emitted when a token approve occurs.
+    #[ink(event)]
+    pub struct Approval {
+        #[ink(topic)]
+        owner: AccountId,
+        #[ink(topic)]
+        operator: AccountId,
+        #[ink(topic)]
+        id: Option<Id>,
+        approved: bool,
     }
 
     /// Emitted when switching from whitelist-phase to public-phase
@@ -94,7 +107,7 @@ mod azns_registry {
     }
 
     #[ink(storage)]
-    pub struct DomainNameService {
+    pub struct Registry {
         /// Admin of the contract can perform root operations
         admin: AccountId,
         /// Contract which verifies the validity of a name
@@ -103,11 +116,13 @@ mod azns_registry {
         fee_calculator: Option<FeeCalculatorRef>,
         /// Names which can be claimed only by the specified user
         reserved_names: Mapping<String, Option<AccountId>, ManualKey<100>>,
+        /// Mapping from owner to operator approvals.
+        operator_approvals: Mapping<(AccountId, AccountId, Option<Id>), (), ManualKey<101>>,
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
-        /// Mapping from name to its expiry timestamp
-        name_to_expiry: Mapping<String, u64>,
+        /// Mapping from name to its registration period (registration_timestamp, expiration_timestamp)
+        name_to_period: Mapping<String, (u64, u64)>,
         /// Metadata
         metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
         metadata_size_limit: Option<u32>,
@@ -137,6 +152,10 @@ mod azns_registry {
 
         /// TLD
         tld: String,
+        /// Base URI
+        base_uri: String,
+        /// Total supply (including expired names)
+        total_supply: Balance,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -187,7 +206,7 @@ mod azns_registry {
         FeeError(azns_fee_calculator::Error),
     }
 
-    impl DomainNameService {
+    impl Registry {
         /// Creates a new AZNS contract.
         #[ink(constructor)]
         pub fn new(
@@ -197,6 +216,7 @@ mod azns_registry {
             merkle_verifier_addr: Option<AccountId>,
             reserved_names: Option<Vec<(String, Option<AccountId>)>>,
             tld: String,
+            base_uri: String,
             metadata_size_limit: Option<u32>,
         ) -> Self {
             // Initializing NameChecker
@@ -215,7 +235,7 @@ mod azns_registry {
                 name_checker,
                 fee_calculator,
                 name_to_address_dict: Mapping::default(),
-                name_to_expiry: Mapping::default(),
+                name_to_period: Mapping::default(),
                 owner_to_name_count: Default::default(),
                 owner_to_names: Default::default(),
                 name_to_owner_index: Default::default(),
@@ -229,8 +249,11 @@ mod azns_registry {
                 name_to_resolving_index: Default::default(),
                 whitelisted_address_verifier: Default::default(),
                 reserved_names: Default::default(),
+                operator_approvals: Default::default(),
                 tld,
+                base_uri,
                 metadata_size_limit,
+                total_supply: 0,
             };
 
             // Initialize address verifier
@@ -390,41 +413,23 @@ mod azns_registry {
 
         /// Transfer owner to another address.
         #[ink(message)]
-        pub fn transfer(&mut self, name: String, to: AccountId) -> Result<()> {
-            // Transfer is disabled during the whitelist-phase
-            if self.is_whitelist_phase() {
-                return Err(Error::RestrictedDuringWhitelistPhase);
-            }
-
-            /* Ensure the caller is the owner of the name */
-            let caller = Self::env().caller();
-            self.ensure_owner(&caller, &name)?;
-
-            /* Transfer control to new owner `to` */
-            let address_dict = AddressDict::new(to);
-            self.name_to_address_dict.insert(&name, &address_dict);
-
-            /* Remove from reverse search */
-            self.remove_name_from_owner(&caller, &name);
-            self.remove_name_from_controller(&caller, &name);
-            self.remove_name_from_resolving(&caller, &name);
-
-            /* Add to reverse search of owner */
-            self.add_name_to_owner(&to, &name);
-            self.add_name_to_controller(&to, &name);
-            self.add_name_to_resolving(&to, &name);
-
-            /* Clear metadata */
-            self.metadata.remove(&name);
-
-            Self::env().emit_event(Transfer {
-                name,
-                from: caller,
-                old_owner: Some(caller),
-                new_owner: to,
-            });
-
-            Ok(())
+        pub fn transfer(
+            &mut self,
+            to: AccountId,
+            name: String,
+            keep_metadata: bool,
+            keep_controller: bool,
+            keep_resolving: bool,
+            data: Vec<u8>,
+        ) -> core::result::Result<(), PSP34Error> {
+            self.transfer_name(
+                to,
+                &name,
+                keep_metadata,
+                keep_controller,
+                keep_resolving,
+                &data,
+            )
         }
 
         /// Removes the associated state of expired-names from storage
@@ -587,8 +592,8 @@ mod azns_registry {
         }
 
         #[ink(message)]
-        pub fn get_expiry_date(&self, name: String) -> Result<u64> {
-            self.name_to_expiry.get(&name).ok_or(Error::NameDoesntExist)
+        pub fn get_registration_period(&self, name: String) -> Result<(u64, u64)> {
+            self.get_registration_period_ref(&name)
         }
 
         /// Gets all records
@@ -724,6 +729,11 @@ mod azns_registry {
         #[ink(message)]
         pub fn get_tld(&self) -> String {
             self.tld.clone()
+        }
+
+        #[ink(message)]
+        pub fn get_base_uri(&self) -> String {
+            self.base_uri.clone()
         }
 
         /// Returns `true` when contract is in whitelist-phase
@@ -911,9 +921,11 @@ mod azns_registry {
                 _ => (),                             // Name is available
             }
 
+            let registration = self.env().block_timestamp();
+
             let address_dict = AddressDict::new(recipient.clone());
             self.name_to_address_dict.insert(name, &address_dict);
-            self.name_to_expiry.insert(name, &expiry);
+            self.name_to_period.insert(name, &(registration, expiry));
 
             /* Update convenience mapping for owned names */
             self.add_name_to_owner(recipient, name);
@@ -924,10 +936,18 @@ mod azns_registry {
             /* Update convenience mapping for resolved names */
             self.add_name_to_resolving(recipient, name);
 
+            self.total_supply += 1;
+
             /* Emit register event */
             Self::env().emit_event(Register {
                 name: name.to_string(),
                 from: *recipient,
+            });
+
+            self.env().emit_event(Transfer {
+                from: None,
+                to: Some(*recipient),
+                id: name.to_string().into(),
             });
 
             Ok(())
@@ -939,12 +959,159 @@ mod azns_registry {
             };
 
             self.name_to_address_dict.remove(name);
-            self.name_to_expiry.remove(name);
+            self.name_to_period.remove(name);
             self.metadata.remove(name);
 
             self.remove_name_from_owner(&address_dict.owner, &name);
             self.remove_name_from_controller(&address_dict.controller, &name);
             self.remove_name_from_resolving(&address_dict.resolved, &name);
+
+            self.total_supply -= 1;
+
+            self.env().emit_event(Transfer {
+                from: Some(address_dict.owner),
+                to: None,
+                id: name.to_string().into(),
+            });
+        }
+
+        fn transfer_name(
+            &mut self,
+            to: AccountId,
+            name: &str,
+            keep_metadata: bool,
+            keep_controller: bool,
+            keep_resolving: bool,
+            data: &Vec<u8>,
+        ) -> core::result::Result<(), PSP34Error> {
+            // Transfer is disabled during the whitelist-phase
+            if self.is_whitelist_phase() {
+                return Err(PSP34Error::Custom(
+                    "transfer disabled during whitelist phase".to_string(),
+                ));
+            }
+
+            let id: Id = name.to_string().into();
+            let mut address_dict = self
+                .get_address_dict_ref(&name)
+                .map_err(|_| PSP34Error::TokenNotExists)?;
+
+            let AddressDict {
+                owner,
+                controller,
+                resolved,
+            } = address_dict;
+
+            // Ensure the caller is authorised to transfer the name
+            let caller = self.env().caller();
+            if caller != owner && !self.allowance(owner, caller, Some(id.clone())) {
+                return Err(PSP34Error::NotApproved);
+            }
+
+            address_dict.owner = to;
+            self.remove_name_from_owner(&owner, &name);
+            self.add_name_to_owner(&to, &name);
+
+            if !keep_controller {
+                address_dict.controller = to;
+                self.remove_name_from_controller(&controller, &name);
+                self.add_name_to_controller(&to, &name);
+            }
+
+            if !keep_resolving {
+                address_dict.resolved = to;
+                self.remove_name_from_resolving(&resolved, &name);
+                self.add_name_to_resolving(&to, &name);
+            }
+
+            if !keep_metadata {
+                self.metadata.remove(name);
+            }
+
+            self.name_to_address_dict.insert(name, &address_dict);
+            self.operator_approvals
+                .remove((&owner, &caller, &Some(id.clone())));
+
+            self.safe_transfer_check(&caller, &owner, &to, &id, &data)?;
+
+            Self::env().emit_event(Transfer {
+                from: Some(owner),
+                to: Some(to),
+                id,
+            });
+
+            Ok(())
+        }
+
+        #[cfg_attr(test, allow(unused))]
+        fn safe_transfer_check(
+            &mut self,
+            operator: &AccountId,
+            from: &AccountId,
+            to: &AccountId,
+            id: &Id,
+            data: &Vec<u8>,
+        ) -> core::result::Result<(), PSP34Error> {
+            // @dev This is disabled during tests due to the use of `invoke_contract()` not being
+            // supported (tests end up panicking).
+            #[cfg(not(test))]
+            {
+                use ink::env::call::{build_call, ExecutionInput, Selector};
+
+                const BEFORE_RECEIVED_SELECTOR: [u8; 4] = [0xBB, 0x7D, 0xF7, 0x80];
+
+                let result = build_call::<Environment>()
+                    .call(*to)
+                    .call_flags(ink::env::CallFlags::default().set_allow_reentry(true))
+                    .exec_input(
+                        ExecutionInput::new(Selector::new(BEFORE_RECEIVED_SELECTOR))
+                            .push_arg(operator)
+                            .push_arg(from)
+                            .push_arg(id)
+                            .push_arg::<Vec<u8>>(data.clone()),
+                    )
+                    .returns::<core::result::Result<(), u8>>()
+                    .params()
+                    .try_invoke();
+
+                match result {
+                    Ok(v) => {
+                        ink::env::debug_println!(
+                            "Received return value \"{:?}\" from contract {:?}",
+                            v.clone()
+                                .expect("Call should be valid, don't expect a `LangError`."),
+                            from
+                        );
+                        assert_eq!(
+                            v.clone()
+                                .expect("Call should be valid, don't expect a `LangError`."),
+                            Ok(()),
+                            "The recipient contract at {to:?} does not accept token transfers.\n
+                            Expected: Ok(()), Got {v:?}"
+                        )
+                    }
+                    Err(e) => {
+                        match e {
+                            ink::env::Error::CodeNotFound | ink::env::Error::NotCallable => {
+                                // Our recipient wasn't a smart contract, so there's nothing more for
+                                // us to do
+                                ink::env::debug_println!(
+                                    "Recipient at {:?} from is not a smart contract ({:?})",
+                                    from,
+                                    e
+                                );
+                            }
+                            _ => {
+                                // We got some sort of error from the call to our recipient smart
+                                // contract, and as such we must revert this call
+                                panic!("Got error \"{e:?}\" while trying to call {from:?}")
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(())
         }
 
         /// Adds a name to owners' collection
@@ -1114,11 +1281,230 @@ mod azns_registry {
                 .unwrap_or_default()
         }
 
+        fn get_registration_period_ref(&self, name: &str) -> Result<(u64, u64)> {
+            self.name_to_period.get(name).ok_or(Error::NameDoesntExist)
+        }
+
         fn has_name_expired(&self, name: &str) -> Result<bool> {
-            match self.name_to_expiry.get(name) {
-                Some(expiry) => Ok(expiry <= self.env().block_timestamp()),
+            match self.name_to_period.get(name) {
+                Some((_, expiry)) => Ok(expiry <= self.env().block_timestamp()),
                 None => Err(Error::NameDoesntExist),
             }
+        }
+
+        fn get_static_attribute_ref(&self, name: &str, key: &str) -> Option<String> {
+            match key {
+                "TLD" => Some(self.tld.clone()),
+                "Length" => Some(name.chars().count().to_string()),
+                "Registration" => Some(match self.get_registration_period_ref(&name) {
+                    Ok(period) => period.0.to_string(),
+                    _ => String::new(),
+                }),
+                "Expiration" => Some(match self.get_registration_period_ref(&name) {
+                    Ok(period) => period.1.to_string(),
+                    _ => String::new(),
+                }),
+                _ => None,
+            }
+        }
+    }
+
+    impl PSP34 for Registry {
+        // TLD is our collection id
+        #[ink(message)]
+        fn collection_id(&self) -> Id {
+            self.tld.clone().into()
+        }
+
+        #[ink(message)]
+        fn balance_of(&self, owner: AccountId) -> u32 {
+            self.get_owned_names_of_address(owner)
+                .unwrap_or_default()
+                .len() as u32
+        }
+
+        #[ink(message)]
+        fn owner_of(&self, id: Id) -> Option<AccountId> {
+            id.try_into().map_or(None, |name| self.get_owner(name).ok())
+        }
+
+        #[ink(message)]
+        fn allowance(&self, owner: AccountId, operator: AccountId, id: Option<Id>) -> bool {
+            if id.is_some() && self.operator_approvals.contains(&(owner, operator, None)) {
+                return true;
+            }
+            self.operator_approvals.contains(&(owner, operator, id))
+        }
+
+        #[ink(message)]
+        fn approve(
+            &mut self,
+            operator: AccountId,
+            id: Option<Id>,
+            approved: bool,
+        ) -> core::result::Result<(), PSP34Error> {
+            let mut caller = self.env().caller();
+
+            if let Some(id) = &id {
+                let owner = self
+                    .owner_of(id.clone())
+                    .ok_or(PSP34Error::TokenNotExists)?;
+
+                if approved && owner == operator {
+                    return Err(PSP34Error::SelfApprove);
+                }
+
+                if owner != caller && !self.allowance(owner, caller, None) {
+                    return Err(PSP34Error::NotApproved);
+                };
+                caller = owner;
+            }
+
+            match approved {
+                true => {
+                    self.operator_approvals
+                        .insert((&caller, &operator, &id), &());
+                }
+                false => self.operator_approvals.remove((&caller, &operator, &id)),
+            }
+
+            // Emit event
+            self.env().emit_event(Approval {
+                owner: caller,
+                operator,
+                id,
+                approved,
+            });
+
+            Ok(())
+        }
+
+        #[ink(message)]
+        fn transfer(
+            &mut self,
+            to: AccountId,
+            id: Id,
+            data: Vec<u8>,
+        ) -> core::result::Result<(), PSP34Error> {
+            let name: String = id.try_into()?;
+            self.transfer_name(to, &name, false, false, false, &data)
+        }
+
+        #[ink(message)]
+        fn total_supply(&self) -> Balance {
+            self.total_supply
+        }
+    }
+
+    impl PSP34Enumerable for Registry {
+        #[ink(message)]
+        fn owners_token_by_index(
+            &self,
+            owner: AccountId,
+            index: u128,
+        ) -> core::result::Result<Id, PSP34Error> {
+            let tokens = self.get_owned_names_of_address(owner).unwrap_or_default();
+
+            match tokens.get(index as usize) {
+                Some(name) => Ok(name.clone().into()),
+                None => Err(PSP34Error::TokenNotExists),
+            }
+        }
+
+        #[ink(message)]
+        fn token_by_index(&self, _index: u128) -> core::result::Result<Id, PSP34Error> {
+            Err(PSP34Error::Custom("Not Supported".to_string()))
+        }
+    }
+
+    impl PSP34Metadata for Registry {
+        #[ink(message)]
+        fn get_attribute(&self, id: Id, key: Vec<u8>) -> Option<Vec<u8>> {
+            match TryInto::<String>::try_into(id) {
+                Ok(name) => {
+                    let Ok(key) = String::from_utf8(key) else {
+                        return None;
+                    };
+
+                    self.get_static_attribute_ref(&name, &key)
+                        .map(|s| s.into_bytes())
+                }
+                Err(_) => None,
+            }
+        }
+    }
+
+    impl Psp34Traits for Registry {
+        #[ink(message)]
+        fn get_owner(&self) -> AccountId {
+            self.admin
+        }
+
+        #[ink(message)]
+        fn token_uri(&self, token_id: Id) -> String {
+            let name: core::result::Result<String, _> = token_id.try_into();
+
+            match name {
+                Ok(name) => self.base_uri.clone() + &name + &String::from(".json"),
+                _ => String::new(),
+            }
+        }
+
+        #[ink(message)]
+        fn set_base_uri(&mut self, uri: String) -> core::result::Result<(), ArtZeroError> {
+            self.ensure_admin()
+                .map_err(|_| ArtZeroError::Custom("Not Authorised".to_string()))?;
+
+            if uri.len() == 0 {
+                return Err(ArtZeroError::Custom("Zero length string".to_string()));
+            }
+            self.base_uri = uri;
+            Ok(())
+        }
+
+        #[ink(message)]
+        fn get_attribute_count(&self) -> u32 {
+            4
+        }
+
+        #[ink(message)]
+        fn get_attribute_name(&self, index: u32) -> String {
+            let attr = match index {
+                0 => "TLD",
+                1 => "Length",
+                2 => "Registration",
+                3 => "Expiration",
+                _ => "",
+            };
+            attr.into()
+        }
+
+        #[ink(message)]
+        fn get_attributes(&self, token_id: Id, attributes: Vec<String>) -> Vec<String> {
+            let name: String = match token_id
+                .try_into()
+                .map_err(|_| ArtZeroError::Custom("TokenNotFound".to_string()))
+            {
+                Ok(name) => name,
+                _ => return Default::default(),
+            };
+
+            attributes
+                .into_iter()
+                .map(|key| {
+                    self.get_static_attribute_ref(&name, &key)
+                        .unwrap_or_default()
+                })
+                .collect()
+        }
+
+        #[ink(message)]
+        fn set_multiple_attributes(
+            &mut self,
+            _token_id: Id,
+            _metadata: Vec<(String, String)>,
+        ) -> core::result::Result<(), ArtZeroError> {
+            Err(ArtZeroError::Custom("Not Supported".to_string()))
         }
     }
 }
@@ -1144,14 +1530,15 @@ mod tests {
         set_caller::<DefaultEnvironment>(caller);
     }
 
-    fn get_test_name_service() -> DomainNameService {
-        DomainNameService::new(
+    fn get_test_name_service() -> Registry {
+        Registry::new(
             default_accounts().alice,
             None,
             None,
             None,
             None,
             "azero".to_string(),
+            "ipfs://05121999/".to_string(),
             None,
         )
     }
@@ -1741,7 +2128,10 @@ mod tests {
         );
 
         // Test transfer of owner.
-        assert_eq!(contract.transfer(name.clone(), accounts.bob), Ok(()));
+        assert_eq!(
+            contract.transfer(accounts.bob, name.clone(), false, false, false, vec![]),
+            Ok(())
+        );
 
         assert_eq!(
             contract.get_owned_names_of_address(accounts.alice),
@@ -2081,13 +2471,14 @@ mod tests {
         let accounts = default_accounts();
         let reserved_list = vec![("bob".to_string(), Some(accounts.bob))];
 
-        let mut contract = DomainNameService::new(
+        let mut contract = Registry::new(
             default_accounts().alice,
             None,
             None,
             None,
             Some(reserved_list),
             "azero".to_string(),
+            "ipfs://05121999/".to_string(),
             None,
         );
 
