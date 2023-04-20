@@ -1318,9 +1318,7 @@ mod azns_registry {
 
         #[ink(message)]
         fn balance_of(&self, owner: AccountId) -> u32 {
-            self.get_owned_names_of_address(owner)
-                .unwrap_or_default()
-                .len() as u32
+            self.get_owned_names_of_address(owner).len() as u32
         }
 
         #[ink(message)]
@@ -1403,7 +1401,7 @@ mod azns_registry {
             owner: AccountId,
             index: u128,
         ) -> core::result::Result<Id, PSP34Error> {
-            let tokens = self.get_owned_names_of_address(owner).unwrap_or_default();
+            let tokens = self.get_owned_names_of_address(owner);
 
             match tokens.get(index as usize) {
                 Some(name) => Ok(name.clone().into()),
