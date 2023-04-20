@@ -413,7 +413,7 @@ mod azns_registry {
                 merkle_proof,
             )?;
             if set_as_primary_name {
-                self.set_primary_name(name)?;
+                self.set_primary_name(Some(name))?;
             }
             Ok(())
         }
@@ -499,21 +499,27 @@ mod azns_registry {
         }
 
         /// Set primary name of an address (reverse record)
-        #[ink(message, payable)]
-        pub fn set_primary_name(&mut self, name: String) -> Result<()> {
+        /// @note if name is set to None then the primary-name for the caller will be removed (if exists)
+        #[ink(message)]
+        pub fn set_primary_name(&mut self, primary_name: Option<String>) -> Result<()> {
             let address = self.env().caller();
-            let resolved = self.get_address_dict_ref(&name)?.resolved;
 
-            /* Ensure the target name resolves to the address */
-            if resolved != address {
-                return Err(Error::NoResolvedAddress);
-            }
+            match &primary_name {
+                Some(name) => {
+                    let resolved = self.get_address_dict_ref(&name)?.resolved;
 
-            self.address_to_primary_name.insert(address, &name);
+                    /* Ensure the target name resolves to the address */
+                    if resolved != address {
+                        return Err(Error::NoResolvedAddress);
+                    }
+                    self.address_to_primary_name.insert(address, name);
+                }
+                None => self.address_to_primary_name.remove(address),
+            };
 
             self.env().emit_event(SetPrimaryName {
                 account: address,
-                primary_name: Some(name),
+                primary_name,
             });
             Ok(())
         }
@@ -529,12 +535,6 @@ mod azns_registry {
             let old_address = address_dict.resolved;
             address_dict.set_resolved(new_address);
             self.name_to_address_dict.insert(&name, &address_dict);
-
-            /* Check if the old resolved address had this name set as the primary name */
-            /* If yes -> clear it */
-            if self.address_to_primary_name.get(old_address) == Some(name.clone()) {
-                self.address_to_primary_name.remove(old_address);
-            }
 
             /* Remove the name from the old resolved address */
             self.remove_name_from_resolving(&old_address, &name);
@@ -1281,6 +1281,17 @@ mod azns_registry {
             self.resolving_to_names.remove((resolving, count - 1));
             self.name_to_resolving_index.remove(name);
             self.resolving_to_name_count.insert(resolving, &(count - 1));
+
+            /* Check if the resolved address had this name set as the primary name */
+            /* If yes -> clear it */
+            if self.address_to_primary_name.get(resolving) == Some(name.to_string()) {
+                self.address_to_primary_name.remove(resolving);
+
+                self.env().emit_event(SetPrimaryName {
+                    account: *resolving,
+                    primary_name: None,
+                });
+            }
         }
 
         fn is_name_allowed(&self, name: &str) -> bool {
@@ -1830,7 +1841,7 @@ mod tests {
 
         /* Now alice owns three names */
         /* Set the primary name for alice's address to name 1 */
-        contract.set_primary_name(name.clone()).unwrap();
+        contract.set_primary_name(Some(name.clone())).unwrap();
 
         /* Now the primary name should resolve to alice's address */
         assert_eq!(
@@ -1851,7 +1862,7 @@ mod tests {
 
         /* Set bob's primary name */
         set_next_caller(default_accounts.bob);
-        contract.set_primary_name(name.clone()).unwrap();
+        contract.set_primary_name(Some(name.clone())).unwrap();
 
         /* Now the primary name should not resolve to anything */
         assert_eq!(contract.get_primary_name(default_accounts.bob), Ok(name));
