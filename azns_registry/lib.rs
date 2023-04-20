@@ -46,6 +46,22 @@ mod azns_registry {
         name: String,
         #[ink(topic)]
         from: AccountId,
+        registration_timestamp: u64,
+        expiration_timestamp: u64,
+    }
+
+    #[ink(event)]
+    pub struct FeeReceived {
+        #[ink(topic)]
+        name: String,
+        #[ink(topic)]
+        from: AccountId,
+        #[ink(topic)]
+        referrer: Option<String>,
+        #[ink(topic)]
+        referrer_addr: Option<AccountId>,
+        received_fee: Balance,
+        forwarded_referrer_fee: Balance,
     }
 
     /// Emitted whenever a name is released
@@ -67,6 +83,33 @@ mod azns_registry {
         old_address: Option<AccountId>,
         #[ink(topic)]
         new_address: AccountId,
+    }
+
+    /// Emitted whenever controller changes.
+    #[ink(event)]
+    pub struct SetController {
+        #[ink(topic)]
+        name: String,
+        from: AccountId,
+        #[ink(topic)]
+        old_controller: Option<AccountId>,
+        #[ink(topic)]
+        new_controller: AccountId,
+    }
+
+    #[ink(event)]
+    pub struct SetPrimaryName {
+        #[ink(topic)]
+        account: AccountId,
+        #[ink(topic)]
+        primary_name: Option<String>,
+    }
+
+    #[ink(event)]
+    pub struct MetadataUpdated {
+        #[ink(topic)]
+        name: String,
+        from: AccountId,
     }
 
     /// Event emitted when a token transfer occurs.
@@ -318,25 +361,34 @@ mod azns_registry {
                 }
             }
 
-            let (base_price, premium, discount, affiliate) =
-                self.get_name_price(name.clone(), recipient, years_to_register, referrer)?;
+            let (base_price, premium, discount, referrer_addr) =
+                self.get_name_price(name.clone(), recipient, years_to_register, referrer.clone())?;
             let price = base_price + premium - discount;
 
             /* Make sure the register is paid for */
-            let _transferred = self.env().transferred_value();
-            if _transferred < price {
+            let transferred = self.env().transferred_value();
+            if transferred < price {
                 return Err(Error::FeeNotPaid);
             }
 
             let expiry_time = self.env().block_timestamp() + YEAR * years_to_register as u64;
             self.register_name(&name, &recipient, expiry_time)?;
 
-            // Pay the affiliate (if present) after successful registration
-            if let Some(usr) = affiliate {
+            // Pay the referrer_addr (if present) after successful registration
+            if let Some(usr) = referrer_addr {
                 if self.env().transfer(usr, discount).is_err() {
                     return Err(Error::WithdrawFailed);
                 }
             }
+
+            self.env().emit_event(FeeReceived {
+                name,
+                from: self.env().caller(),
+                referrer,
+                referrer_addr,
+                received_fee: transferred - discount,
+                forwarded_referrer_fee: discount,
+            });
 
             Ok(())
         }
@@ -459,6 +511,10 @@ mod azns_registry {
 
             self.address_to_primary_name.insert(address, &name);
 
+            self.env().emit_event(SetPrimaryName {
+                account: address,
+                primary_name: Some(name),
+            });
             Ok(())
         }
 
@@ -502,6 +558,7 @@ mod azns_registry {
             self.ensure_controller(&caller, &name)?;
 
             let mut address_dict = self.get_address_dict_ref(&name)?;
+            let old_controller = address_dict.controller;
             address_dict.set_controller(new_controller);
             self.name_to_address_dict.insert(&name, &address_dict);
 
@@ -510,6 +567,13 @@ mod azns_registry {
 
             /* Add the name to the new controller */
             self.add_name_to_controller(&new_controller, &name);
+
+            self.env().emit_event(SetController {
+                name,
+                from: caller,
+                old_controller: Some(old_controller),
+                new_controller,
+            });
 
             Ok(())
         }
@@ -546,7 +610,11 @@ mod azns_registry {
             let updated_metadata: Vec<(String, String)> = data.into_iter().collect();
             self.metadata.insert(&name, &updated_metadata);
 
-            self.ensure_metadata_under_limit(&name)
+            self.ensure_metadata_under_limit(&name)?;
+
+            self.env()
+                .emit_event(MetadataUpdated { name, from: caller });
+            Ok(())
         }
 
         /// Returns the current status of the name
@@ -942,6 +1010,8 @@ mod azns_registry {
             Self::env().emit_event(Register {
                 name: name.to_string(),
                 from: *recipient,
+                registration_timestamp: registration,
+                expiration_timestamp: expiry,
             });
 
             self.env().emit_event(Transfer {
@@ -1244,19 +1314,19 @@ mod azns_registry {
             };
             let price = base_price + premium;
             let mut discount = 0;
-            let mut affiliate = None;
+            let mut referrer_addr = None;
 
             // Only in public phase
             if !self.is_whitelist_phase() {
                 if let Some(referrer_name) = referrer {
                     if self.validate_referrer(recipient, referrer_name.clone()) {
-                        affiliate = Some(self.get_address(referrer_name).unwrap());
+                        referrer_addr = Some(self.get_address(referrer_name).unwrap());
                         discount = 5 * price / 100; // 5% discount
                     }
                 }
             }
 
-            Ok((base_price, premium, discount, affiliate))
+            Ok((base_price, premium, discount, referrer_addr))
         }
 
         #[ink(message)]
