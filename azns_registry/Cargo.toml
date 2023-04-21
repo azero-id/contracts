@@ -6,7 +6,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-ink = { version = "4.0.0", default-features = false }
+ink = { version = "4.2.0", default-features = false }
 
 interfaces = { path = "../interfaces", default-features = false }
 azns_name_checker = { path = "../azns_name_checker", default-features = false, features = ["ink-as-dependency"] }
@@ -14,10 +14,10 @@ azns_fee_calculator = { path = "../azns_fee_calculator", default-features = fals
 azns_merkle_verifier = { path = "../azns_merkle_verifier", default-features = false, features = ["ink-as-dependency"] }
 
 scale = { package = "parity-scale-codec", version = "3", default-features = false, features = ["derive"] }
-scale-info = { version = "2.3", default-features = false, features = ["derive"], optional = true }
+scale-info = { version = "2.5", default-features = false, features = ["derive"], optional = true }
 
 [dev-dependencies]
-ink_e2e = "4.0.0"
+ink_e2e = "4.2.0"
 
 [lib]
 path = "lib.rs"

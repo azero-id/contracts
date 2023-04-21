@@ -46,6 +46,22 @@ mod azns_registry {
         name: String,
         #[ink(topic)]
         from: AccountId,
+        registration_timestamp: u64,
+        expiration_timestamp: u64,
+    }
+
+    #[ink(event)]
+    pub struct FeeReceived {
+        #[ink(topic)]
+        name: String,
+        #[ink(topic)]
+        from: AccountId,
+        #[ink(topic)]
+        referrer: Option<String>,
+        #[ink(topic)]
+        referrer_addr: Option<AccountId>,
+        received_fee: Balance,
+        forwarded_referrer_fee: Balance,
     }
 
     /// Emitted whenever a name is released
@@ -67,6 +83,33 @@ mod azns_registry {
         old_address: Option<AccountId>,
         #[ink(topic)]
         new_address: AccountId,
+    }
+
+    /// Emitted whenever controller changes.
+    #[ink(event)]
+    pub struct SetController {
+        #[ink(topic)]
+        name: String,
+        from: AccountId,
+        #[ink(topic)]
+        old_controller: Option<AccountId>,
+        #[ink(topic)]
+        new_controller: AccountId,
+    }
+
+    #[ink(event)]
+    pub struct SetPrimaryName {
+        #[ink(topic)]
+        account: AccountId,
+        #[ink(topic)]
+        primary_name: Option<String>,
+    }
+
+    #[ink(event)]
+    pub struct RecordsUpdated {
+        #[ink(topic)]
+        name: String,
+        from: AccountId,
     }
 
     /// Event emitted when a token transfer occurs.
@@ -122,10 +165,10 @@ mod azns_registry {
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
         /// Mapping from name to its registration period (registration_timestamp, expiration_timestamp)
-        name_to_period: Mapping<String, (u64, u64)>,
-        /// Metadata
-        metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
-        metadata_size_limit: Option<u32>,
+        name_to_period: Mapping<String, (u64, u64), ManualKey<202>>,
+        /// Records
+        records: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
+        records_size_limit: Option<u32>,
 
         /// All names an address owns
         owner_to_name_count: Mapping<AccountId, u128, ManualKey<300>>,
@@ -200,8 +243,8 @@ mod azns_registry {
         NotReservedName,
         /// User is not authorised to claim the given name
         NotAuthorised,
-        /// Metadata size limit exceeded
-        MetadataOverflow,
+        /// Records size limit exceeded
+        RecordsOverflow,
         /// Thrown when fee_calculator doesn't return a names' price
         FeeError(azns_fee_calculator::Error),
     }
@@ -214,10 +257,8 @@ mod azns_registry {
             name_checker_addr: Option<AccountId>,
             fee_calculator_addr: Option<AccountId>,
             merkle_verifier_addr: Option<AccountId>,
-            reserved_names: Option<Vec<(String, Option<AccountId>)>>,
             tld: String,
             base_uri: String,
-            metadata_size_limit: Option<u32>,
         ) -> Self {
             // Initializing NameChecker
             let name_checker = name_checker_addr.map(|addr| NameCheckerRef::from_account_id(addr));
@@ -239,7 +280,7 @@ mod azns_registry {
                 owner_to_name_count: Default::default(),
                 owner_to_names: Default::default(),
                 name_to_owner_index: Default::default(),
-                metadata: Default::default(),
+                records: Default::default(),
                 address_to_primary_name: Default::default(),
                 controller_to_name_count: Default::default(),
                 controller_to_names: Default::default(),
@@ -252,7 +293,7 @@ mod azns_registry {
                 operator_approvals: Default::default(),
                 tld,
                 base_uri,
-                metadata_size_limit,
+                records_size_limit: None,
                 total_supply: 0,
             };
 
@@ -260,13 +301,6 @@ mod azns_registry {
             contract
                 .whitelisted_address_verifier
                 .set(&whitelisted_address_verifier);
-
-            // Initializing reserved names
-            if let Some(set) = reserved_names {
-                contract
-                    .add_reserved_names(set)
-                    .expect("Invalid reserve name detected");
-            }
 
             // No Whitelist phase
             if merkle_verifier_addr == None {
@@ -318,25 +352,34 @@ mod azns_registry {
                 }
             }
 
-            let (base_price, premium, discount, affiliate) =
-                self.get_name_price(name.clone(), recipient, years_to_register, referrer)?;
+            let (base_price, premium, discount, referrer_addr) =
+                self.get_name_price(name.clone(), recipient, years_to_register, referrer.clone())?;
             let price = base_price + premium - discount;
 
             /* Make sure the register is paid for */
-            let _transferred = self.env().transferred_value();
-            if _transferred < price {
+            let transferred = self.env().transferred_value();
+            if transferred < price {
                 return Err(Error::FeeNotPaid);
             }
 
             let expiry_time = self.env().block_timestamp() + YEAR * years_to_register as u64;
             self.register_name(&name, &recipient, expiry_time)?;
 
-            // Pay the affiliate (if present) after successful registration
-            if let Some(usr) = affiliate {
+            // Pay the referrer_addr (if present) after successful registration
+            if let Some(usr) = referrer_addr {
                 if self.env().transfer(usr, discount).is_err() {
                     return Err(Error::WithdrawFailed);
                 }
             }
+
+            self.env().emit_event(FeeReceived {
+                name,
+                from: self.env().caller(),
+                referrer,
+                referrer_addr,
+                received_fee: transferred - discount,
+                forwarded_referrer_fee: discount,
+            });
 
             Ok(())
         }
@@ -361,7 +404,7 @@ mod azns_registry {
                 merkle_proof,
             )?;
             if set_as_primary_name {
-                self.set_primary_name(name)?;
+                self.set_primary_name(Some(name))?;
             }
             Ok(())
         }
@@ -417,7 +460,7 @@ mod azns_registry {
             &mut self,
             to: AccountId,
             name: String,
-            keep_metadata: bool,
+            keep_records: bool,
             keep_controller: bool,
             keep_resolving: bool,
             data: Vec<u8>,
@@ -425,7 +468,7 @@ mod azns_registry {
             self.transfer_name(
                 to,
                 &name,
-                keep_metadata,
+                keep_records,
                 keep_controller,
                 keep_resolving,
                 &data,
@@ -447,18 +490,28 @@ mod azns_registry {
         }
 
         /// Set primary name of an address (reverse record)
-        #[ink(message, payable)]
-        pub fn set_primary_name(&mut self, name: String) -> Result<()> {
+        /// @note if name is set to None then the primary-name for the caller will be removed (if exists)
+        #[ink(message)]
+        pub fn set_primary_name(&mut self, primary_name: Option<String>) -> Result<()> {
             let address = self.env().caller();
-            let resolved = self.get_address_dict_ref(&name)?.resolved;
 
-            /* Ensure the target name resolves to the address */
-            if resolved != address {
-                return Err(Error::NoResolvedAddress);
-            }
+            match &primary_name {
+                Some(name) => {
+                    let resolved = self.get_address_dict_ref(&name)?.resolved;
 
-            self.address_to_primary_name.insert(address, &name);
+                    /* Ensure the target name resolves to the address */
+                    if resolved != address {
+                        return Err(Error::NoResolvedAddress);
+                    }
+                    self.address_to_primary_name.insert(address, name);
+                }
+                None => self.address_to_primary_name.remove(address),
+            };
 
+            self.env().emit_event(SetPrimaryName {
+                account: address,
+                primary_name,
+            });
             Ok(())
         }
 
@@ -473,12 +526,6 @@ mod azns_registry {
             let old_address = address_dict.resolved;
             address_dict.set_resolved(new_address);
             self.name_to_address_dict.insert(&name, &address_dict);
-
-            /* Check if the old resolved address had this name set as the primary name */
-            /* If yes -> clear it */
-            if self.address_to_primary_name.get(old_address) == Some(name.clone()) {
-                self.address_to_primary_name.remove(old_address);
-            }
 
             /* Remove the name from the old resolved address */
             self.remove_name_from_resolving(&old_address, &name);
@@ -502,6 +549,7 @@ mod azns_registry {
             self.ensure_controller(&caller, &name)?;
 
             let mut address_dict = self.get_address_dict_ref(&name)?;
+            let old_controller = address_dict.controller;
             address_dict.set_controller(new_controller);
             self.name_to_address_dict.insert(&name, &address_dict);
 
@@ -510,6 +558,13 @@ mod azns_registry {
 
             /* Add the name to the new controller */
             self.add_name_to_controller(&new_controller, &name);
+
+            self.env().emit_event(SetController {
+                name,
+                from: caller,
+                old_controller: Some(old_controller),
+                new_controller,
+            });
 
             Ok(())
         }
@@ -529,7 +584,7 @@ mod azns_registry {
             let mut data = BTreeMap::new();
 
             if !remove_rest {
-                self.get_metadata_ref(&name)
+                self.get_records_ref(&name)
                     .into_iter()
                     .for_each(|(key, val)| {
                         data.insert(key, val);
@@ -543,10 +598,13 @@ mod azns_registry {
                 };
             });
 
-            let updated_metadata: Vec<(String, String)> = data.into_iter().collect();
-            self.metadata.insert(&name, &updated_metadata);
+            let updated_records: Vec<(String, String)> = data.into_iter().collect();
+            self.records.insert(&name, &updated_records);
 
-            self.ensure_metadata_under_limit(&name)
+            self.ensure_records_under_limit(&name)?;
+
+            self.env().emit_event(RecordsUpdated { name, from: caller });
+            Ok(())
         }
 
         /// Returns the current status of the name
@@ -599,13 +657,13 @@ mod azns_registry {
         /// Gets all records
         #[ink(message)]
         pub fn get_all_records(&self, name: String) -> Vec<(String, String)> {
-            self.get_metadata_ref(&name)
+            self.get_records_ref(&name)
         }
 
         /// Gets an arbitrary record by key
         #[ink(message)]
         pub fn get_record(&self, name: String, key: String) -> Result<String> {
-            let info = self.get_metadata_ref(&name);
+            let info = self.get_records_ref(&name);
             match info.iter().find(|tuple| tuple.0 == key) {
                 Some(val) => Ok(val.clone().1),
                 None => Err(Error::RecordNotFound),
@@ -717,8 +775,8 @@ mod azns_registry {
         }
 
         #[ink(message)]
-        pub fn get_metadata_size_limit(&self) -> Option<u32> {
-            self.metadata_size_limit
+        pub fn get_records_size_limit(&self) -> Option<u32> {
+            self.records_size_limit
         }
 
         #[ink(message)]
@@ -842,11 +900,11 @@ mod azns_registry {
         }
 
         /// (ADMIN-OPERATION)
-        /// Update the limit of metadata allowed to store per name
+        /// Update the limit of records allowed to store per name
         #[ink(message)]
-        pub fn set_metadata_size_limit(&mut self, limit: Option<u32>) -> Result<()> {
+        pub fn set_records_size_limit(&mut self, limit: Option<u32>) -> Result<()> {
             self.ensure_admin()?;
-            self.metadata_size_limit = limit;
+            self.records_size_limit = limit;
             Ok(())
         }
 
@@ -904,13 +962,13 @@ mod azns_registry {
             }
         }
 
-        fn ensure_metadata_under_limit(&self, name: &str) -> Result<()> {
-            let size = self.metadata.size(name).unwrap_or(0);
-            let limit = self.metadata_size_limit.unwrap_or(u32::MAX);
+        fn ensure_records_under_limit(&self, name: &str) -> Result<()> {
+            let size = self.records.size(name).unwrap_or(0);
+            let limit = self.records_size_limit.unwrap_or(u32::MAX);
 
             match size <= limit {
                 true => Ok(()),
-                false => Err(Error::MetadataOverflow),
+                false => Err(Error::RecordsOverflow),
             }
         }
 
@@ -942,6 +1000,8 @@ mod azns_registry {
             Self::env().emit_event(Register {
                 name: name.to_string(),
                 from: *recipient,
+                registration_timestamp: registration,
+                expiration_timestamp: expiry,
             });
 
             self.env().emit_event(Transfer {
@@ -960,7 +1020,7 @@ mod azns_registry {
 
             self.name_to_address_dict.remove(name);
             self.name_to_period.remove(name);
-            self.metadata.remove(name);
+            self.records.remove(name);
 
             self.remove_name_from_owner(&address_dict.owner, &name);
             self.remove_name_from_controller(&address_dict.controller, &name);
@@ -979,7 +1039,7 @@ mod azns_registry {
             &mut self,
             to: AccountId,
             name: &str,
-            keep_metadata: bool,
+            keep_records: bool,
             keep_controller: bool,
             keep_resolving: bool,
             data: &Vec<u8>,
@@ -1024,8 +1084,8 @@ mod azns_registry {
                 self.add_name_to_resolving(&to, &name);
             }
 
-            if !keep_metadata {
-                self.metadata.remove(name);
+            if !keep_records {
+                self.records.remove(name);
             }
 
             self.name_to_address_dict.insert(name, &address_dict);
@@ -1211,6 +1271,17 @@ mod azns_registry {
             self.resolving_to_names.remove((resolving, count - 1));
             self.name_to_resolving_index.remove(name);
             self.resolving_to_name_count.insert(resolving, &(count - 1));
+
+            /* Check if the resolved address had this name set as the primary name */
+            /* If yes -> clear it */
+            if self.address_to_primary_name.get(resolving) == Some(name.to_string()) {
+                self.address_to_primary_name.remove(resolving);
+
+                self.env().emit_event(SetPrimaryName {
+                    account: *resolving,
+                    primary_name: None,
+                });
+            }
         }
 
         fn is_name_allowed(&self, name: &str) -> bool {
@@ -1244,19 +1315,19 @@ mod azns_registry {
             };
             let price = base_price + premium;
             let mut discount = 0;
-            let mut affiliate = None;
+            let mut referrer_addr = None;
 
             // Only in public phase
             if !self.is_whitelist_phase() {
                 if let Some(referrer_name) = referrer {
                     if self.validate_referrer(recipient, referrer_name.clone()) {
-                        affiliate = Some(self.get_address(referrer_name).unwrap());
+                        referrer_addr = Some(self.get_address(referrer_name).unwrap());
                         discount = 5 * price / 100; // 5% discount
                     }
                 }
             }
 
-            Ok((base_price, premium, discount, affiliate))
+            Ok((base_price, premium, discount, referrer_addr))
         }
 
         #[ink(message)]
@@ -1274,8 +1345,8 @@ mod azns_registry {
                 .ok_or(Error::NameDoesntExist)
         }
 
-        fn get_metadata_ref(&self, name: &str) -> Vec<(String, String)> {
-            self.metadata
+        fn get_records_ref(&self, name: &str) -> Vec<(String, String)> {
+            self.records
                 .get(name)
                 .filter(|_| self.has_name_expired(name) == Ok(false))
                 .unwrap_or_default()
@@ -1313,7 +1384,8 @@ mod azns_registry {
         // TLD is our collection id
         #[ink(message)]
         fn collection_id(&self) -> Id {
-            self.tld.clone().into()
+            let id = ".".to_string() + &self.tld.to_ascii_uppercase() + " Domains";
+            id.into()
         }
 
         #[ink(message)]
@@ -1534,10 +1606,8 @@ mod tests {
             None,
             None,
             None,
-            None,
             "azero".to_string(),
             "ipfs://05121999/".to_string(),
-            None,
         )
     }
 
@@ -1760,7 +1830,7 @@ mod tests {
 
         /* Now alice owns three names */
         /* Set the primary name for alice's address to name 1 */
-        contract.set_primary_name(name.clone()).unwrap();
+        contract.set_primary_name(Some(name.clone())).unwrap();
 
         /* Now the primary name should resolve to alice's address */
         assert_eq!(
@@ -1781,7 +1851,7 @@ mod tests {
 
         /* Set bob's primary name */
         set_next_caller(default_accounts.bob);
-        contract.set_primary_name(name.clone()).unwrap();
+        contract.set_primary_name(Some(name.clone())).unwrap();
 
         /* Now the primary name should not resolve to anything */
         assert_eq!(contract.get_primary_name(default_accounts.bob), Ok(name));
@@ -2159,7 +2229,7 @@ mod tests {
     }
 
     #[ink::test]
-    fn metadata_works() {
+    fn records_works() {
         let accounts = default_accounts();
         let key = String::from("twitter");
         let value = String::from("@test");
@@ -2273,7 +2343,7 @@ mod tests {
             .register(name.clone(), 1, None, None, false)
             .unwrap();
 
-        // add initial metadata values
+        // add initial records values
         assert_eq!(
             contract.update_records(
                 name.clone(),
@@ -2335,7 +2405,7 @@ mod tests {
     }
 
     #[ink::test]
-    fn metadata_limit_works() {
+    fn records_limit_works() {
         let mut contract = get_test_name_service();
         let name = "alice".to_string();
         let records = vec![
@@ -2344,8 +2414,8 @@ mod tests {
             ("@instagram".to_string(), Some("alice_zuk".to_string())),
         ];
 
-        contract.set_metadata_size_limit(Some(41)).unwrap();
-        assert_eq!(contract.get_metadata_size_limit(), Some(41));
+        contract.set_records_size_limit(Some(41)).unwrap();
+        assert_eq!(contract.get_records_size_limit(), Some(41));
 
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         contract
@@ -2355,7 +2425,7 @@ mod tests {
         // With current input, records cannot be stored simultaneously
         assert_eq!(
             contract.update_records(name.clone(), records.clone(), false),
-            Err(Error::MetadataOverflow)
+            Err(Error::RecordsOverflow)
         );
 
         // Storing only one works
@@ -2367,7 +2437,7 @@ mod tests {
         // Adding the second record fails
         assert_eq!(
             contract.update_records(name.clone(), records[1..3].to_vec(), false),
-            Err(Error::MetadataOverflow),
+            Err(Error::RecordsOverflow),
         );
     }
 
@@ -2474,11 +2544,11 @@ mod tests {
             None,
             None,
             None,
-            Some(reserved_list),
             "azero".to_string(),
             "ipfs://05121999/".to_string(),
-            None,
         );
+
+        contract.add_reserved_names(reserved_list).unwrap();
 
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         contract
