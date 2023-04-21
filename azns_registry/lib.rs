@@ -106,7 +106,7 @@ mod azns_registry {
     }
 
     #[ink(event)]
-    pub struct MetadataUpdated {
+    pub struct RecordsUpdated {
         #[ink(topic)]
         name: String,
         from: AccountId,
@@ -166,9 +166,9 @@ mod azns_registry {
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
         /// Mapping from name to its registration period (registration_timestamp, expiration_timestamp)
         name_to_period: Mapping<String, (u64, u64), ManualKey<202>>,
-        /// Metadata
-        metadata: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
-        metadata_size_limit: Option<u32>,
+        /// Records
+        records: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
+        records_size_limit: Option<u32>,
 
         /// All names an address owns
         owner_to_name_count: Mapping<AccountId, u128, ManualKey<300>>,
@@ -243,8 +243,8 @@ mod azns_registry {
         NotReservedName,
         /// User is not authorised to claim the given name
         NotAuthorised,
-        /// Metadata size limit exceeded
-        MetadataOverflow,
+        /// Records size limit exceeded
+        RecordsOverflow,
         /// Thrown when fee_calculator doesn't return a names' price
         FeeError(azns_fee_calculator::Error),
     }
@@ -280,7 +280,7 @@ mod azns_registry {
                 owner_to_name_count: Default::default(),
                 owner_to_names: Default::default(),
                 name_to_owner_index: Default::default(),
-                metadata: Default::default(),
+                records: Default::default(),
                 address_to_primary_name: Default::default(),
                 controller_to_name_count: Default::default(),
                 controller_to_names: Default::default(),
@@ -293,7 +293,7 @@ mod azns_registry {
                 operator_approvals: Default::default(),
                 tld,
                 base_uri,
-                metadata_size_limit: None,
+                records_size_limit: None,
                 total_supply: 0,
             };
 
@@ -460,7 +460,7 @@ mod azns_registry {
             &mut self,
             to: AccountId,
             name: String,
-            keep_metadata: bool,
+            keep_records: bool,
             keep_controller: bool,
             keep_resolving: bool,
             data: Vec<u8>,
@@ -468,7 +468,7 @@ mod azns_registry {
             self.transfer_name(
                 to,
                 &name,
-                keep_metadata,
+                keep_records,
                 keep_controller,
                 keep_resolving,
                 &data,
@@ -584,7 +584,7 @@ mod azns_registry {
             let mut data = BTreeMap::new();
 
             if !remove_rest {
-                self.get_metadata_ref(&name)
+                self.get_records_ref(&name)
                     .into_iter()
                     .for_each(|(key, val)| {
                         data.insert(key, val);
@@ -598,13 +598,12 @@ mod azns_registry {
                 };
             });
 
-            let updated_metadata: Vec<(String, String)> = data.into_iter().collect();
-            self.metadata.insert(&name, &updated_metadata);
+            let updated_records: Vec<(String, String)> = data.into_iter().collect();
+            self.records.insert(&name, &updated_records);
 
-            self.ensure_metadata_under_limit(&name)?;
+            self.ensure_records_under_limit(&name)?;
 
-            self.env()
-                .emit_event(MetadataUpdated { name, from: caller });
+            self.env().emit_event(RecordsUpdated { name, from: caller });
             Ok(())
         }
 
@@ -658,13 +657,13 @@ mod azns_registry {
         /// Gets all records
         #[ink(message)]
         pub fn get_all_records(&self, name: String) -> Vec<(String, String)> {
-            self.get_metadata_ref(&name)
+            self.get_records_ref(&name)
         }
 
         /// Gets an arbitrary record by key
         #[ink(message)]
         pub fn get_record(&self, name: String, key: String) -> Result<String> {
-            let info = self.get_metadata_ref(&name);
+            let info = self.get_records_ref(&name);
             match info.iter().find(|tuple| tuple.0 == key) {
                 Some(val) => Ok(val.clone().1),
                 None => Err(Error::RecordNotFound),
@@ -776,8 +775,8 @@ mod azns_registry {
         }
 
         #[ink(message)]
-        pub fn get_metadata_size_limit(&self) -> Option<u32> {
-            self.metadata_size_limit
+        pub fn get_records_size_limit(&self) -> Option<u32> {
+            self.records_size_limit
         }
 
         #[ink(message)]
@@ -901,11 +900,11 @@ mod azns_registry {
         }
 
         /// (ADMIN-OPERATION)
-        /// Update the limit of metadata allowed to store per name
+        /// Update the limit of records allowed to store per name
         #[ink(message)]
-        pub fn set_metadata_size_limit(&mut self, limit: Option<u32>) -> Result<()> {
+        pub fn set_records_size_limit(&mut self, limit: Option<u32>) -> Result<()> {
             self.ensure_admin()?;
-            self.metadata_size_limit = limit;
+            self.records_size_limit = limit;
             Ok(())
         }
 
@@ -963,13 +962,13 @@ mod azns_registry {
             }
         }
 
-        fn ensure_metadata_under_limit(&self, name: &str) -> Result<()> {
-            let size = self.metadata.size(name).unwrap_or(0);
-            let limit = self.metadata_size_limit.unwrap_or(u32::MAX);
+        fn ensure_records_under_limit(&self, name: &str) -> Result<()> {
+            let size = self.records.size(name).unwrap_or(0);
+            let limit = self.records_size_limit.unwrap_or(u32::MAX);
 
             match size <= limit {
                 true => Ok(()),
-                false => Err(Error::MetadataOverflow),
+                false => Err(Error::RecordsOverflow),
             }
         }
 
@@ -1021,7 +1020,7 @@ mod azns_registry {
 
             self.name_to_address_dict.remove(name);
             self.name_to_period.remove(name);
-            self.metadata.remove(name);
+            self.records.remove(name);
 
             self.remove_name_from_owner(&address_dict.owner, &name);
             self.remove_name_from_controller(&address_dict.controller, &name);
@@ -1040,7 +1039,7 @@ mod azns_registry {
             &mut self,
             to: AccountId,
             name: &str,
-            keep_metadata: bool,
+            keep_records: bool,
             keep_controller: bool,
             keep_resolving: bool,
             data: &Vec<u8>,
@@ -1085,8 +1084,8 @@ mod azns_registry {
                 self.add_name_to_resolving(&to, &name);
             }
 
-            if !keep_metadata {
-                self.metadata.remove(name);
+            if !keep_records {
+                self.records.remove(name);
             }
 
             self.name_to_address_dict.insert(name, &address_dict);
@@ -1346,8 +1345,8 @@ mod azns_registry {
                 .ok_or(Error::NameDoesntExist)
         }
 
-        fn get_metadata_ref(&self, name: &str) -> Vec<(String, String)> {
-            self.metadata
+        fn get_records_ref(&self, name: &str) -> Vec<(String, String)> {
+            self.records
                 .get(name)
                 .filter(|_| self.has_name_expired(name) == Ok(false))
                 .unwrap_or_default()
@@ -2230,7 +2229,7 @@ mod tests {
     }
 
     #[ink::test]
-    fn metadata_works() {
+    fn records_works() {
         let accounts = default_accounts();
         let key = String::from("twitter");
         let value = String::from("@test");
@@ -2344,7 +2343,7 @@ mod tests {
             .register(name.clone(), 1, None, None, false)
             .unwrap();
 
-        // add initial metadata values
+        // add initial records values
         assert_eq!(
             contract.update_records(
                 name.clone(),
@@ -2406,7 +2405,7 @@ mod tests {
     }
 
     #[ink::test]
-    fn metadata_limit_works() {
+    fn records_limit_works() {
         let mut contract = get_test_name_service();
         let name = "alice".to_string();
         let records = vec![
@@ -2415,8 +2414,8 @@ mod tests {
             ("@instagram".to_string(), Some("alice_zuk".to_string())),
         ];
 
-        contract.set_metadata_size_limit(Some(41)).unwrap();
-        assert_eq!(contract.get_metadata_size_limit(), Some(41));
+        contract.set_records_size_limit(Some(41)).unwrap();
+        assert_eq!(contract.get_records_size_limit(), Some(41));
 
         set_value_transferred::<DefaultEnvironment>(160_u128 * 10_u128.pow(12));
         contract
@@ -2426,7 +2425,7 @@ mod tests {
         // With current input, records cannot be stored simultaneously
         assert_eq!(
             contract.update_records(name.clone(), records.clone(), false),
-            Err(Error::MetadataOverflow)
+            Err(Error::RecordsOverflow)
         );
 
         // Storing only one works
@@ -2438,7 +2437,7 @@ mod tests {
         // Adding the second record fails
         assert_eq!(
             contract.update_records(name.clone(), records[1..3].to_vec(), false),
-            Err(Error::MetadataOverflow),
+            Err(Error::RecordsOverflow),
         );
     }
 
