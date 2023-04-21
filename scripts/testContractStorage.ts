@@ -30,9 +30,9 @@ dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
  * Example #2: `DOMAIN_COUNT=1000 USE_RANDOM_ACCOUNTS=true pnpm ts-node scripts/testContractStorage.ts`
  *   - Should run through as it creates & funds a new random account for each domain.
  *
- * Example #3: `DOMAIN_COUNT=1 METADATA_SIZE_LIMIT=8000 METADATA_ROW_COUNT=120 METADATA_ITEM_SIZE=32 pnpm ts-node scripts/testContractStorage.ts`
- *   - Tests metadata size limits by creating a domain with 120 metadata rows with 64 characters each (32 key & 32 value).
- *   - Fails with lower `METADATA_SIZE_LIMIT` or higher `METADATA_ROW_COUNT` or `METADATA_ITEM_SIZE` (2×32×120 ⪅ 8000 bytes).
+ * Example #3: `DOMAIN_COUNT=1 RECORDS_SIZE_LIMIT=8000 RECORD_ROW_COUNT=120 RECORDS_ITEM_SIZE=32 pnpm ts-node scripts/testContractStorage.ts`
+ *   - Tests record size limits by creating a domain with 120 record rows with 64 characters each (32 key & 32 value).
+ *   - Fails with lower `RECORDS_SIZE_LIMIT` or higher `RECORDS_ROW_COUNT` or `RECORDS_ITEM_SIZE` (2×32×120 ⪅ 8000 bytes).
  *
  * Example #4: `REGISTRY_ADDRESS=5fei… DIR=../indexer/src/deployments CHAIN=alephzero-testnet DOMAIN_PRICE=6 DOMAIN_COUNT=10 pnpm ts-node scripts/testContractStorage.ts`
  *   - Uses a previously deployed registry contract at a different directory with given domain price.
@@ -55,12 +55,10 @@ const main = async () => {
     const { address: feeCalculatorAddress } = await deployFeeCalculator(initParams, {
       commonPrice: domainPrice,
     })
-    const metadataSizeLimit = new BN(parseInt(process.env.METADATA_SIZE_LIMIT ?? '8000'))
     const { address } = await deployRegistry(initParams, {
       nameCheckerAddress,
       feeCalculatorAddress,
       merkleVerifierAddress: null,
-      metadataSizeLimit,
     })
     registryAddress = address
   }
@@ -69,14 +67,18 @@ const main = async () => {
   const { abi } = await getDeploymentData('azns_registry')
   const contract = new ContractPromise(api, abi, registryAddress)
 
+  // Set record size limit
+  const recordsSizeLimit = new BN(parseInt(process.env.RECORDS_SIZE_LIMIT ?? '8000'))
+  await contractTx(api, account, contract, 'set_records_size_limit', {}, [recordsSizeLimit])
+
   // Track gas usage
   const { balance: balanceStart } = await getBalance(api, account.address, 5)
 
   // Parse options & print info
   const DOMAIN_COUNT = parseInt(process.env.DOMAIN_COUNT ?? '1000')
   const USE_RANDOM_ACCOUNTS = (process.env.USE_RANDOM_ACCOUNTS || '').toLowerCase() === 'true'
-  const META_COUNT = parseInt(process.env.METADATA_ROW_COUNT ?? '0')
-  const META_SIZE = parseInt(process.env.METADATA_ITEM_SIZE ?? '32')
+  const META_COUNT = parseInt(process.env.RECORDS_ROW_COUNT ?? '0')
+  const META_SIZE = parseInt(process.env.RECORDS_ITEM_SIZE ?? '32')
   console.log(
     `\nRegistering ${DOMAIN_COUNT} domain(s) ${
       USE_RANDOM_ACCOUNTS
@@ -84,10 +86,10 @@ const main = async () => {
         : `for ${account.address}`
     } ${
       META_COUNT
-        ? `with ${META_COUNT} metadata row(s) à ${2 * META_SIZE} characters (~${
+        ? `with ${META_COUNT} metadata record(s) à ${2 * META_SIZE} characters (~${
             2 * META_SIZE * META_COUNT
           } bytes)`
-        : 'without metadata'
+        : 'without metadata records'
     } …`,
   )
 
@@ -111,8 +113,15 @@ const main = async () => {
       // Register domain
       await registerDomain(api, domainAccount, contract, domainPrice, domainName)
 
-      // Add metadata to domain
-      await setDomainSampleMetadata(api, domainAccount, contract, domainName, META_COUNT, META_SIZE)
+      // Add metadata records to domain
+      await setDomainSampleMetadataRecords(
+        api,
+        domainAccount,
+        contract,
+        domainName,
+        META_COUNT,
+        META_SIZE,
+      )
 
       // Refund rest from random account
       if (USE_RANDOM_ACCOUNTS) {
@@ -156,7 +165,14 @@ const registerDomain = async (api, account, contract, domainPrice, domainName) =
 /**
  * Helper function to add sample metadata to a domain.
  */
-const setDomainSampleMetadata = async (api, account, contract, domainName, rowCount, itemSize) => {
+const setDomainSampleMetadataRecords = async (
+  api,
+  account,
+  contract,
+  domainName,
+  rowCount,
+  itemSize,
+) => {
   if (!rowCount || !itemSize) return
 
   try {
@@ -169,7 +185,7 @@ const setDomainSampleMetadata = async (api, account, contract, domainName, rowCo
       true,
     ])
   } catch (e) {
-    console.error(`Error while adding metadata to '${domainName}.azero':`, e)
+    console.error(`Error while adding metadata records to '${domainName}.azero':`, e)
     throw new Error()
   }
 }
