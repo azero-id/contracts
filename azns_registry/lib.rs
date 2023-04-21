@@ -58,7 +58,6 @@ mod azns_registry {
         from: AccountId,
         #[ink(topic)]
         referrer: Option<String>,
-        #[ink(topic)]
         referrer_addr: Option<AccountId>,
         received_fee: Balance,
         forwarded_referrer_fee: Balance,
