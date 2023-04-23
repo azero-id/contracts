@@ -740,6 +740,13 @@ mod azns_registry {
         }
 
         #[ink(message)]
+        pub fn get_primary_domain(&self, address: AccountId) -> Option<String> {
+            self.get_primary_name(address)
+                .map(|name| name + "." + &self.tld)
+                .ok()
+        }
+
+        #[ink(message)]
         pub fn get_names_of_address(&self, address: AccountId) -> Vec<String> {
             let resolved_names = self.get_resolving_names_of_address(address);
             let controlled_names = self.get_controlled_names_of_address(address);
