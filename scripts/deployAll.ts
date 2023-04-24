@@ -1,4 +1,4 @@
-import { getSubstrateChain } from '@scio-labs/use-inkathon'
+import { alephzeroTestnet, getSubstrateChain } from '@scio-labs/use-inkathon'
 import * as dotenv from 'dotenv'
 import { deployFeeCalculator } from './deploy/deployFeeCalculator'
 import { deployMerkleVerifierWithWhitelist } from './deploy/deployMerkleVerifier'
@@ -27,15 +27,17 @@ const main = async () => {
   const merkleVerifier = process.env.WHITELIST
     ? await deployMerkleVerifierWithWhitelist(initParams)
     : null
+  const tlds = chain.network === alephzeroTestnet.network ? ['tzero'] : ['azero', 'a0']
   const registry = await deployRegistry(initParams, {
     nameCheckerAddress: nameChecker.address,
     feeCalculatorAddress: feeCalculator.address,
     merkleVerifierAddress: merkleVerifier?.address,
+    tld: tlds[0],
   })
   const router = await deployRouter(initParams)
 
   // Add registry to router
-  await addRegistryToRouter(initParams, router.address, ['azero', 'a0'], registry.address)
+  await addRegistryToRouter(initParams, router.address, tlds, registry.address)
 
   // Write contract addresses to `{contract}/{network}.ts` files
   await writeContractAddresses(chain.network, {
