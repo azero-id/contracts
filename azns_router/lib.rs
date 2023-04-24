@@ -3,6 +3,7 @@
 #[ink::contract]
 mod azns_router {
     use ink::prelude::string::{String, ToString};
+    use ink::prelude::vec;
     use ink::prelude::vec::Vec;
     use ink::storage::traits::ManualKey;
     use ink::storage::Mapping;
@@ -15,6 +16,8 @@ mod azns_router {
         admin: AccountId,
         /// Maps TLDs to their registry contract address
         routes: Mapping<String, AccountId, ManualKey<100>>,
+        /// List of registeries registered with the router
+        registry: Vec<AccountId>,
     }
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -40,6 +43,7 @@ mod azns_router {
             Self {
                 admin,
                 routes: Default::default(),
+                registry: Default::default(),
             }
         }
 
@@ -51,6 +55,10 @@ mod azns_router {
             #[cfg(not(test))]
             if !self.env().is_contract(&registry_addr) {
                 return Err(Error::InvalidRegistryAddress);
+            }
+
+            if self.registry.iter().all(|&x| x != registry_addr) {
+                self.registry.push(registry_addr);
             }
 
             for i in 0..tld.len() {
@@ -88,6 +96,11 @@ mod azns_router {
         }
 
         #[ink(message)]
+        pub fn get_all_registry(&self) -> Vec<AccountId> {
+            self.registry.clone()
+        }
+
+        #[ink(message)]
         pub fn get_registry(&self, tld: String) -> Option<AccountId> {
             self.routes.get(tld)
         }
@@ -120,6 +133,26 @@ mod azns_router {
                     result.map_err(|_| Error::CouldNotResolveDomain)
                 }
             }
+        }
+
+        /// @returns list of (registry-address, primary-domain) for given account
+        #[ink(message)]
+        pub fn get_primary_domains(
+            &self,
+            account: AccountId,
+            tld: Option<String>,
+        ) -> Vec<(AccountId, String)> {
+            let list = match tld {
+                None => self.registry.clone(),
+                Some(tld) => self.get_registry(tld).map_or(vec![], |a| vec![a]),
+            };
+
+            list.iter()
+                .filter_map(|&addr| {
+                    self.get_primary_domain_for(account, addr)
+                        .map(|domain| (addr, domain))
+                })
+                .collect()
         }
 
         #[ink(message)]
@@ -173,6 +206,34 @@ mod azns_router {
                 return Err(Error::InvalidDomainName);
             }
             Ok((name, tld))
+        }
+
+        fn get_primary_domain_for(
+            &self,
+            account: AccountId,
+            registry_addr: AccountId,
+        ) -> Option<String> {
+            match cfg!(test) {
+                true => unimplemented!(
+                    "`invoke_contract()` not being supported (tests end up panicking)"
+                ),
+                false => {
+                    use ink::env::call::{build_call, ExecutionInput, Selector};
+
+                    const GET_PRIMARY_DOMAIN_SELECTOR: [u8; 4] = [0xBF, 0x5B, 0x56, 0x77];
+                    let result = build_call::<Environment>()
+                        .call(registry_addr)
+                        .exec_input(
+                            ExecutionInput::new(Selector::new(GET_PRIMARY_DOMAIN_SELECTOR))
+                                .push_arg(account),
+                        )
+                        .returns::<Option<String>>()
+                        .params()
+                        .invoke();
+
+                    result
+                }
+            }
         }
     }
 
