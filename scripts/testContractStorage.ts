@@ -42,12 +42,12 @@ const main = async () => {
   if (!chain) throw new Error(`Chain '${chainId}' not found`)
   const accountUri = process.env.ACCOUNT_URI || '//Alice'
   const initParams = await initPolkadotJs(chain, accountUri)
-  const { api, decimals, account, keyring } = initParams
+  const { api, decimals, toBNWithDecimals, account, keyring } = initParams
 
   // Determine registry address
   let registryAddress = process.env.REGISTRY_ADDRESS || null
   let domainPrice: any = process.env.DOMAIN_PRICE || 0
-  domainPrice = new BN(domainPrice).mul(new BN(10 ** decimals))
+  domainPrice = toBNWithDecimals(domainPrice)
 
   // Deploy all contracts if no registry address is provided
   if (!registryAddress) {
@@ -106,7 +106,7 @@ const main = async () => {
       // Generate & fund random account
       if (USE_RANDOM_ACCOUNTS) {
         domainAccount = keyring.addFromUri('//' + domainName)
-        const amount = new BN(1).mul(new BN(10 ** decimals)).add(domainPrice)
+        const amount = toBNWithDecimals(1)
         await transferBalance(api, account, domainAccount.address, amount)
       }
 

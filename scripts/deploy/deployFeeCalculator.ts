@@ -13,15 +13,15 @@ export type FeeCalculatorArgs = {
   pricePoints: [number, BN][] // [length, price][]
 }
 export const deployFeeCalculator: DeployFn<FeeCalculatorArgs> = async (
-  { api, account, decimals },
+  { api, account, decimals, toBNWithDecimals },
   customArgs,
 ) => {
-  const veryHighFee = new BN(1_000_000).mul(new BN(10 ** decimals))
+  const veryHighFee = toBNWithDecimals(1_000_000)
   const args = Object.assign(
     {
       admin: account.address,
       maxRegistrationDuration: 3,
-      commonPrice: new BN(6).mul(new BN(10 ** decimals)),
+      commonPrice: toBNWithDecimals(6),
       pricePoints: [
         [1, veryHighFee],
         [2, veryHighFee],
