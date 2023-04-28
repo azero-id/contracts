@@ -152,6 +152,9 @@ deployments
 # deployments/**/development.json
 # deployments/**/development.ts
 
+# Verifiable Deployment files
+deployments-verifiable
+
 # Environment files
 *.env*
 !.env*.example
