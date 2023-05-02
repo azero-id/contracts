@@ -28,11 +28,16 @@ const main = async () => {
     ? await deployMerkleVerifierWithWhitelist(initParams)
     : null
   const tlds = chain.network === alephzeroTestnet.network ? ['tzero'] : ['azero', 'a0']
+  const baseUri =
+    chain.network === alephzeroTestnet.network
+      ? 'https://tzero.id/api/v1/metadata/'
+      : 'https://azero.id/api/v1/metadata/'
   const registry = await deployRegistry(initParams, {
     nameCheckerAddress: nameChecker.address,
     feeCalculatorAddress: feeCalculator.address,
     merkleVerifierAddress: merkleVerifier?.address,
     tld: tlds[0],
+    baseUri,
   })
   const router = await deployRouter(initParams)
 

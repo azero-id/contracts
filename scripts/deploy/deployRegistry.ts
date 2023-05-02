@@ -21,7 +21,7 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
       feeCalculatorAddress: null,
       merkleVerifierAddress: null,
       tld: 'azero',
-      baseUri: 'https://dev.azero.domains/api/v1/metadata/',
+      baseUri: 'https://azero.id/api/v1/metadata/',
     } as RegistryArgs,
     customArgs,
   )

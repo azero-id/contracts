@@ -1,7 +1,7 @@
 {
   "name": "@azns/contracts",
   "version": "0.0.1",
-  "author": "AZERO Domains <hello@azero.domains> (https://azero.domains)",
+  "author": "AZERO.ID <hello@azero.id> (https://azero.id)",
   "type": "module",
   "engines": {
     "node": ">=16 <=18",

@@ -1,13 +1,13 @@
-# AZERO Domains – Smart Contracts
+# AZERO.ID – Smart Contracts
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Built with ink!](https://raw.githubusercontent.com/paritytech/ink/master/.images/badge.svg)](https://github.com/paritytech/ink)
 
-This repository contains all smart contracts of the [azero.domains](https://azero.domains) name service.
+This repository contains the smart contracts of [AZERO.ID](https://azero.id).
 
 ## Documentation
 
-Work-in-progress is accessible under [docs.azero.domains](https://docs.azero.domains).
+Work-in-progress is accessible under [docs.azero.id](https://docs.azero.id).
 
 ## Development
 
