@@ -14,10 +14,10 @@ mod azns_router {
     pub struct Router {
         /// Account allowed to update the state
         admin: AccountId,
-        /// Maps TLDs to their registry contract address
-        routes: Mapping<String, AccountId, ManualKey<100>>,
         /// List of registeries registered with the router
         registry: Vec<AccountId>,
+        /// Maps TLDs to their registry contract address
+        routes: Mapping<String, AccountId, ManualKey<100>>,
     }
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]

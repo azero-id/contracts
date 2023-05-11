@@ -2,9 +2,6 @@
 
 pub use self::azns_name_checker::{NameChecker, NameCheckerRef};
 
-extern crate alloc;
-extern crate unicode_segmentation;
-
 /// Contains the bounds of a Unicode range, with each bound representing a Unicode character
 /// Used to check whether a certain character is allowed by specifying allowed ranges, such as a-z etc.
 #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode, Clone)]
@@ -27,9 +24,9 @@ mod azns_name_checker {
     #[ink(storage)]
     pub struct NameChecker {
         admin: AccountId,
+        allowed_length: (Min, Max),
         allowed_unicode_ranges: Vec<UnicodeRange>,
         disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
-        allowed_length: (Min, Max),
     }
 
     pub type Result<T> = core::result::Result<T, Error>;

@@ -152,10 +152,20 @@ mod azns_registry {
     pub struct Registry {
         /// Admin of the contract can perform root operations
         admin: AccountId,
+        /// TLD
+        tld: String,
+        /// Base URI
+        base_uri: String,
+        /// Total supply (including expired names)
+        total_supply: Balance,
+        /// Maximum record (in bytes) a name can be associated with
+        records_size_limit: Option<u32>,
+
         /// Contract which verifies the validity of a name
         name_checker: Option<NameCheckerRef>,
         /// Contract which calculates the name price
         fee_calculator: Option<FeeCalculatorRef>,
+
         /// Names which can be claimed only by the specified user
         reserved_names: Mapping<String, Option<AccountId>, ManualKey<100>>,
         /// Mapping from owner to operator approvals.
@@ -167,7 +177,6 @@ mod azns_registry {
         name_to_period: Mapping<String, (u64, u64), ManualKey<202>>,
         /// Records
         records: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
-        records_size_limit: Option<u32>,
 
         /// All names an address owns
         owner_to_name_count: Mapping<AccountId, u128, ManualKey<300>>,
@@ -191,13 +200,6 @@ mod azns_registry {
 
         /// Merkle Verifier used to identifiy whitelisted addresses
         whitelisted_address_verifier: Lazy<Option<MerkleVerifierRef>, ManualKey<999>>,
-
-        /// TLD
-        tld: String,
-        /// Base URI
-        base_uri: String,
-        /// Total supply (including expired names)
-        total_supply: Balance,
     }
 
     /// Errors that can occur upon calling this contract.
