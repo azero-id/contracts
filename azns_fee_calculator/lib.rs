@@ -12,6 +12,8 @@ pub enum Error {
     InvalidDuration,
     /// Zero length name not allowed
     ZeroLength,
+    /// Zero price not allowed
+    ZeroPrice,
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -59,6 +61,8 @@ mod azns_fee_calculator {
             common_price: Balance,
             price_points: Vec<(Length, Balance)>,
         ) -> Self {
+            assert!(common_price > 0, "Zero price");
+
             let mut contract = Self {
                 admin,
                 max_registration_duration,
@@ -67,6 +71,7 @@ mod azns_fee_calculator {
             };
 
             price_points.iter().for_each(|(length, price)| {
+                assert!(price > &0, "Zero price");
                 contract.price_by_length.insert(length, price);
             });
 
@@ -125,7 +130,12 @@ mod azns_fee_calculator {
         #[ink(message)]
         pub fn set_common_price(&mut self, common_price: Balance) -> Result<()> {
             self.ensure_admin()?;
+
+            if common_price == 0 {
+                return Err(Error::ZeroPrice);
+            }
             self.common_price = common_price;
+
             Ok(())
         }
 
@@ -136,13 +146,16 @@ mod azns_fee_calculator {
         ) -> Result<()> {
             self.ensure_admin()?;
 
-            price_points.iter().for_each(|(length, price)| {
+            for (length, price) in &price_points {
                 if let Some(price) = price {
+                    if price == &0 {
+                        return Err(Error::ZeroPrice);
+                    }
                     self.price_by_length.insert(length, price);
                 } else {
                     self.price_by_length.remove(length);
                 }
-            });
+            }
 
             Ok(())
         }
@@ -283,6 +296,17 @@ mod azns_fee_calculator {
                 .unwrap();
             assert_eq!(contract.get_price_by_length(2), Some(100));
             assert_eq!(contract.get_price_by_length(3), None);
+        }
+
+        #[ink::test]
+        fn zero_price_check_works() {
+            let mut contract = get_test_fee_calculator();
+
+            assert_eq!(contract.set_common_price(0), Err(Error::ZeroPrice));
+            assert_eq!(
+                contract.set_prices_by_length(vec![(2, Some(0))]),
+                Err(Error::ZeroPrice)
+            );
         }
 
         #[ink::test]

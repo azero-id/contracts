@@ -40,6 +40,7 @@ mod azns_name_checker {
         TooShort,
         TooLong,
         ContainsDisallowedCharacters,
+        InvalidRange,
     }
 
     impl NameChecker {
@@ -50,6 +51,14 @@ mod azns_name_checker {
             allowed_unicode_ranges: Vec<UnicodeRange>,
             disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
         ) -> Self {
+            let validate_range = |rng: &UnicodeRange| rng.lower <= rng.upper;
+
+            assert!(allowed_length.0 > 0 && allowed_length.0 <= allowed_length.1);
+            assert!(allowed_unicode_ranges.iter().all(validate_range));
+            assert!(disallowed_unicode_ranges_for_edges
+                .iter()
+                .all(validate_range));
+
             Self {
                 admin,
                 allowed_unicode_ranges,
@@ -130,6 +139,10 @@ mod azns_name_checker {
         #[ink(message)]
         pub fn set_allowed_unicode_ranges(&mut self, new_ranges: Vec<UnicodeRange>) -> Result<()> {
             self.ensure_admin()?;
+
+            if new_ranges.iter().any(|rng| rng.lower > rng.upper) {
+                return Err(Error::InvalidRange);
+            }
             self.allowed_unicode_ranges = new_ranges;
             Ok(())
         }
@@ -140,6 +153,10 @@ mod azns_name_checker {
             new_ranges: Vec<UnicodeRange>,
         ) -> Result<()> {
             self.ensure_admin()?;
+
+            if new_ranges.iter().any(|rng| rng.lower > rng.upper) {
+                return Err(Error::InvalidRange);
+            }
             self.disallowed_unicode_ranges_for_edges = new_ranges;
             Ok(())
         }
@@ -147,6 +164,10 @@ mod azns_name_checker {
         #[ink(message)]
         pub fn set_allowed_length(&mut self, new_length: (Min, Max)) -> Result<()> {
             self.ensure_admin()?;
+
+            if new_length.0 == 0 || new_length.0 > new_length.1 {
+                return Err(Error::InvalidRange);
+            }
             self.allowed_length = new_length;
             Ok(())
         }
@@ -261,7 +282,7 @@ mod tests {
         let alice = default_accounts::<DefaultEnvironment>().alice;
         let checker = NameChecker::new(
             alice,
-            (0, 99),
+            (1, 99),
             vec![
                 UnicodeRange {
                     lower: 'a' as u32,
