@@ -244,6 +244,8 @@ mod azns_registry {
         NotReservedName,
         /// User is not authorised to claim the given name
         NotAuthorised,
+        /// Zero address is not allowed
+        ZeroAddress,
         /// Records size limit exceeded
         RecordsOverflow,
         /// Thrown when fee_calculator doesn't return a names' price
@@ -847,6 +849,10 @@ mod azns_registry {
             let beneficiary = beneficiary.unwrap_or(self.env().caller());
             let value = value.unwrap_or(self.env().balance());
 
+            if beneficiary == [0u8; 32].into() {
+                return Err(Error::ZeroAddress);
+            }
+
             if value > self.env().balance() {
                 return Err(Error::InsufficientBalance);
             }
@@ -994,6 +1000,10 @@ mod azns_registry {
                 _ => (),                             // Name is available
             }
 
+            if recipient == &[0u8; 32].into() {
+                return Err(Error::ZeroAddress);
+            }
+
             let registration = self.env().block_timestamp();
 
             let address_dict = AddressDict::new(recipient.clone());
@@ -1064,6 +1074,10 @@ mod azns_registry {
                 return Err(PSP34Error::Custom(
                     "transfer disabled during whitelist phase".to_string(),
                 ));
+            }
+
+            if to == [0u8; 32].into() {
+                return Err(PSP34Error::Custom("Zero address".to_string()));
             }
 
             let id: Id = name.to_string().into();
@@ -1429,6 +1443,10 @@ mod azns_registry {
             approved: bool,
         ) -> core::result::Result<(), PSP34Error> {
             let mut caller = self.env().caller();
+
+            if operator == [0u8; 32].into() {
+                return Err(PSP34Error::Custom("Zero address".to_string()));
+            }
 
             if let Some(id) = &id {
                 let owner = self
