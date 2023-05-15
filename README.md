@@ -43,7 +43,7 @@ pnpm node
 pnpm ts-node scripts/testMerkleVerifier.ts
 
 # Run script on other chain
-# NOTE: Make sure to create a `.{chain}.env` environment file (gitignored) with the `ACCOUNT_URI` you want to use.
+# NOTE: Make sure to create a `.env.{chain}` environment file (gitignored) with the `ACCOUNT_URI` you want to use.
 #       Also, chain must be a network-id from here: https://github.com/scio-labs/use-inkathon/blob/main/src/chains.ts.
 CHAIN=alephzero-testnet pnpm ts-node scripts/testMerkleVerifier.ts
 ```
