@@ -106,7 +106,7 @@ const main = async () => {
       // Generate & fund random account
       if (USE_RANDOM_ACCOUNTS) {
         domainAccount = keyring.addFromUri('//' + domainName)
-        const amount = toBNWithDecimals(1)
+        const amount = domainPrice.add(toBNWithDecimals(1))
         await transferBalance(api, account, domainAccount.address, amount)
       }
 
