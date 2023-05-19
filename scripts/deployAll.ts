@@ -5,6 +5,7 @@ import { deployMerkleVerifierWithWhitelist } from './deploy/deployMerkleVerifier
 import { deployNameChecker } from './deploy/deployNameChecker'
 import { deployRegistry } from './deploy/deployRegistry'
 import { addRegistryToRouter, deployRouter } from './deploy/deployRouter'
+import { setContractAdmins } from './deploy/setContractAdmin'
 import { addReservedNames } from './reservations/addReservedNames'
 import { ContractDeployments } from './utils/ContractDeployments.type'
 import { initPolkadotJs } from './utils/initPolkadotJs'
@@ -67,6 +68,9 @@ const main = async () => {
 
   // Add registry to router
   await addRegistryToRouter(initParams, router.address, tlds, registry.address)
+
+  // Set new contract admins
+  if (process.env.ADMIN) await setContractAdmins(initParams, deployments)
 
   // Write contract addresses to `{contract}/{network}.ts` files
   await writeContractAddresses(chain.network, deployments)
