@@ -5,7 +5,6 @@ import { deployMerkleVerifierWithWhitelist } from './deploy/deployMerkleVerifier
 import { deployNameChecker } from './deploy/deployNameChecker'
 import { deployRegistry } from './deploy/deployRegistry'
 import { addRegistryToRouter, deployRouter } from './deploy/deployRouter'
-import { setContractAdmin } from './deploy/setContractAdmin'
 import { addReservedNames } from './reservations/addReservedNames'
 import { ContractDeployments } from './utils/ContractDeployments.type'
 import { initPolkadotJs } from './utils/initPolkadotJs'
@@ -54,17 +53,23 @@ const main = async () => {
   })
   const router = await deployRouter(initParams)
 
-  // Add registry to router
-  await addRegistryToRouter(initParams, router.address, tlds, registry.address)
-
-  // Write contract addresses to `{contract}/{network}.ts` files
-  await writeContractAddresses(chain.network, {
+  // Map contract names to their deployment results
+  const deployments: ContractDeployments = {
     azns_name_checker: nameChecker,
     azns_fee_calculator: feeCalculator,
     azns_merkle_verifier: merkleVerifier,
     azns_registry: registry,
     azns_router: router,
-  })
+  }
+
+  // Add reserved names to registry
+  if (process.env.RESERVED_NAMES) await addReservedNames(initParams, registry.address)
+
+  // Add registry to router
+  await addRegistryToRouter(initParams, router.address, tlds, registry.address)
+
+  // Write contract addresses to `{contract}/{network}.ts` files
+  await writeContractAddresses(chain.network, deployments)
 }
 
 main()
