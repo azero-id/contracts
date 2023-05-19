@@ -5,6 +5,9 @@ import { deployMerkleVerifierWithWhitelist } from './deploy/deployMerkleVerifier
 import { deployNameChecker } from './deploy/deployNameChecker'
 import { deployRegistry } from './deploy/deployRegistry'
 import { addRegistryToRouter, deployRouter } from './deploy/deployRouter'
+import { setContractAdmin } from './deploy/setContractAdmin'
+import { addReservedNames } from './reservations/addReservedNames'
+import { ContractDeployments } from './utils/ContractDeployments.type'
 import { initPolkadotJs } from './utils/initPolkadotJs'
 import { writeContractAddresses } from './utils/writeContractAddresses'
 
@@ -14,6 +17,16 @@ dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
 
 /**
  * Script that deploys all contracts and writes their addresses to files.
+ *
+ * Parameters:
+ *  - `DIR`: Directory to read deploy files & write contract addresses to (optional, defaults to `./src/deployments`)
+ *  - `CHAIN`: Chain ID (optional, defaults to `development`)
+ *  - `ADMIN`: Address of contract admin (optional, defaults to caller)
+ *  - `WHITELIST`: Path to .txt file with whitelisted addresses (optional)
+ *  - `RESERVED_NAMES`: Path to .csv file with reserved names & addresses (optional)
+ *
+ * Example usage:
+ *  - `CHAIN=alephzero-testnet ADMIN=5fei… WHITELIST=whitelist.txt RESERVED_NAMES=reserved-names.csv pr deploy`
  */
 const main = async () => {
   const chain = getSubstrateChain(chainId)

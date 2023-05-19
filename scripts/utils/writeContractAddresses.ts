@@ -1,6 +1,6 @@
-import { deployContract } from '@scio-labs/use-inkathon'
 import { writeFile } from 'fs/promises'
 import path from 'path'
+import { ContractDeployments } from './ContractDeployments.type'
 
 /**
  * Writes each given contract address & blockNumber to a `{baseDir}/{contract}/{network}.ts` file.
@@ -8,7 +8,7 @@ import path from 'path'
  */
 export const writeContractAddresses = async (
   networkId: string,
-  contractDeployments: Record<string, Awaited<ReturnType<typeof deployContract>>>,
+  contractDeployments: ContractDeployments,
 ) => {
   const baseDir = process.env.DIR || './deployments'
 

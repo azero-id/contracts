@@ -36,7 +36,7 @@ export const addRegistryToRouter = async (
   try {
     await contractTx(api, account, contract, 'add_registry', {}, [tlds, registryAddress])
     console.log(
-      `Successfully added registry ${registryAddress} to router for tlds: ${tlds.join(', ')}`,
+      `\nSuccessfully added registry ${registryAddress} to router for tlds: ${tlds.join(', ')}`,
     )
   } catch (error) {
     throw new Error('Error while adding registry to router.')
