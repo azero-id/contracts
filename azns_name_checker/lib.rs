@@ -11,6 +11,10 @@ pub struct UnicodeRange {
     pub upper: u32,
 }
 
+#[util_macros::azns_contract(Ownable2Step[
+    Error = Error::NotAdmin
+])]
+#[util_macros::azns_contract(Upgradable)]
 #[ink::contract]
 mod azns_name_checker {
     use crate::UnicodeRange;
@@ -24,6 +28,7 @@ mod azns_name_checker {
     #[ink(storage)]
     pub struct NameChecker {
         admin: AccountId,
+        pending_admin: Option<AccountId>,
         allowed_length: (Min, Max),
         allowed_unicode_ranges: Vec<UnicodeRange>,
         disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
@@ -61,6 +66,7 @@ mod azns_name_checker {
 
             Self {
                 admin,
+                pending_admin: None,
                 allowed_unicode_ranges,
                 allowed_length,
                 disallowed_unicode_ranges_for_edges,
@@ -117,11 +123,6 @@ mod azns_name_checker {
         }
 
         #[ink(message)]
-        pub fn get_admin(&self) -> AccountId {
-            self.admin
-        }
-
-        #[ink(message)]
         pub fn get_allowed_unicode_ranges(&self) -> Vec<UnicodeRange> {
             self.allowed_unicode_ranges.clone()
         }
@@ -170,35 +171,6 @@ mod azns_name_checker {
             }
             self.allowed_length = new_length;
             Ok(())
-        }
-
-        #[ink(message)]
-        pub fn set_admin(&mut self, account: AccountId) -> Result<()> {
-            self.ensure_admin()?;
-            self.admin = account;
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn upgrade_contract(&mut self, code_hash: [u8; 32]) -> Result<()> {
-            self.ensure_admin()?;
-
-            ink::env::set_code_hash(&code_hash).unwrap_or_else(|err| {
-                panic!(
-                    "Failed to `set_code_hash` to {:?} due to {:?}",
-                    code_hash, err
-                )
-            });
-            ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
-
-            Ok(())
-        }
-
-        fn ensure_admin(&self) -> Result<()> {
-            match self.env().caller() == self.admin {
-                true => Ok(()),
-                false => Err(Error::NotAdmin),
-            }
         }
     }
 }
@@ -361,15 +333,17 @@ mod tests {
     }
 
     #[ink::test]
-    fn set_admin_works() {
+    fn ownable_2_step_works() {
         let accounts = default_accounts::<DefaultEnvironment>();
         let mut contract = NameChecker::new(accounts.alice, (2, 5), vec![], vec![]);
 
         assert_eq!(contract.get_admin(), accounts.alice);
-        assert_eq!(contract.set_admin(accounts.bob), Ok(()));
-        assert_eq!(contract.get_admin(), accounts.bob);
+        contract.transfer_ownership(Some(accounts.bob)).unwrap();
 
-        // Now alice (not admin anymore) cannot update admin
-        assert_eq!(contract.set_admin(accounts.alice), Err(Error::NotAdmin));
+        assert_eq!(contract.get_admin(), accounts.alice);
+
+        ink::env::test::set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.accept_ownership().unwrap();
+        assert_eq!(contract.get_admin(), accounts.bob);
     }
 }

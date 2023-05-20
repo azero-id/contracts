@@ -2,6 +2,10 @@
 
 mod address_dict;
 
+#[util_macros::azns_contract(Ownable2Step[
+    Error = Error::NotAdmin
+])]
+#[util_macros::azns_contract(Upgradable)]
 #[ink::contract]
 mod azns_registry {
     use crate::address_dict::AddressDict;
@@ -152,6 +156,8 @@ mod azns_registry {
     pub struct Registry {
         /// Admin of the contract can perform root operations
         admin: AccountId,
+        /// Two-step ownership transfer AccountId
+        pending_admin: Option<AccountId>,
         /// TLD
         tld: String,
         /// Base URI
@@ -276,6 +282,7 @@ mod azns_registry {
 
             let mut contract = Self {
                 admin,
+                pending_admin: None,
                 name_checker,
                 fee_calculator,
                 name_to_address_dict: Mapping::default(),
@@ -797,11 +804,6 @@ mod azns_registry {
         }
 
         #[ink(message)]
-        pub fn get_admin(&self) -> AccountId {
-            self.admin
-        }
-
-        #[ink(message)]
         pub fn get_tld(&self) -> String {
             self.tld.clone()
         }
@@ -927,38 +929,6 @@ mod azns_registry {
             self.ensure_admin()?;
             self.records_size_limit = limit;
             Ok(())
-        }
-
-        /// (ADMIN-OPERATION)
-        /// Upgrade contract code
-        #[ink(message)]
-        pub fn upgrade_contract(&mut self, code_hash: [u8; 32]) -> Result<()> {
-            self.ensure_admin()?;
-
-            ink::env::set_code_hash(&code_hash).unwrap_or_else(|err| {
-                panic!(
-                    "Failed to `set_code_hash` to {:?} due to {:?}",
-                    code_hash, err
-                )
-            });
-            ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
-
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn set_admin(&mut self, account: AccountId) -> Result<()> {
-            self.ensure_admin()?;
-            self.admin = account;
-            Ok(())
-        }
-
-        fn ensure_admin(&self) -> Result<()> {
-            if self.admin != self.env().caller() {
-                Err(Error::NotAdmin)
-            } else {
-                Ok(())
-            }
         }
 
         fn ensure_owner(&self, address: &AccountId, name: &str) -> Result<()> {
@@ -2890,16 +2860,18 @@ mod tests {
     }
 
     #[ink::test]
-    fn set_admin_works() {
+    fn ownable_2_step_works() {
         let accounts = default_accounts();
         let mut contract = get_test_name_service();
 
         assert_eq!(contract.get_admin(), accounts.alice);
-        assert_eq!(contract.set_admin(accounts.bob), Ok(()));
-        assert_eq!(contract.get_admin(), accounts.bob);
+        contract.transfer_ownership(Some(accounts.bob)).unwrap();
 
-        // Now alice (not admin anymore) cannot update admin
-        assert_eq!(contract.set_admin(accounts.alice), Err(Error::NotAdmin));
+        assert_eq!(contract.get_admin(), accounts.alice);
+
+        set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.accept_ownership().unwrap();
+        assert_eq!(contract.get_admin(), accounts.bob);
     }
 
     // TODO Need cross-contract test support

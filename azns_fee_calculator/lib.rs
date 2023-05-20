@@ -31,6 +31,10 @@ macro_rules! ensure {
 
 pub use self::azns_fee_calculator::{FeeCalculator, FeeCalculatorRef};
 
+#[util_macros::azns_contract(Ownable2Step[
+    Error = Error::NotAdmin
+])]
+#[util_macros::azns_contract(Upgradable)]
 #[ink::contract]
 mod azns_fee_calculator {
     use super::*;
@@ -44,6 +48,8 @@ mod azns_fee_calculator {
     pub struct FeeCalculator {
         /// Account allowed to modify the variables
         admin: AccountId,
+        /// Two-step ownership transfer AccountId
+        pending_admin: Option<AccountId>,
         /// Maximum registration duration allowed (in years)
         max_registration_duration: u8,
         /// If no specific price found for a given length then this will be used
@@ -65,6 +71,7 @@ mod azns_fee_calculator {
 
             let mut contract = Self {
                 admin,
+                pending_admin: None,
                 max_registration_duration,
                 common_price,
                 price_by_length: Default::default(),
@@ -116,11 +123,6 @@ mod azns_fee_calculator {
         }
 
         #[ink(message)]
-        pub fn get_admin(&self) -> AccountId {
-            self.admin
-        }
-
-        #[ink(message)]
         pub fn set_max_registration_duration(&mut self, duration: u8) -> Result<()> {
             self.ensure_admin()?;
             self.max_registration_duration = duration;
@@ -157,33 +159,6 @@ mod azns_fee_calculator {
                 }
             }
 
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn set_admin(&mut self, account: AccountId) -> Result<()> {
-            self.ensure_admin()?;
-            self.admin = account;
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn upgrade_contract(&mut self, code_hash: [u8; 32]) -> Result<()> {
-            self.ensure_admin()?;
-
-            ink::env::set_code_hash(&code_hash).unwrap_or_else(|err| {
-                panic!(
-                    "Failed to `set_code_hash` to {:?} due to {:?}",
-                    code_hash, err
-                )
-            });
-            ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
-
-            Ok(())
-        }
-
-        fn ensure_admin(&self) -> Result<()> {
-            ensure!(self.env().caller() == self.admin, Error::NotAdmin);
             Ok(())
         }
     }
@@ -310,12 +285,18 @@ mod azns_fee_calculator {
         }
 
         #[ink::test]
-        fn set_admin_works() {
+        fn ownable_2_step_works() {
+            let accounts = default_accounts();
             let mut contract = get_test_fee_calculator();
 
-            assert_eq!(contract.get_admin(), default_accounts().alice);
-            contract.set_admin(default_accounts().bob).unwrap();
-            assert_eq!(contract.get_admin(), default_accounts().bob);
+            assert_eq!(contract.get_admin(), accounts.alice);
+            contract.transfer_ownership(Some(accounts.bob)).unwrap();
+
+            assert_eq!(contract.get_admin(), accounts.alice);
+
+            set_caller::<DefaultEnvironment>(accounts.bob);
+            contract.accept_ownership().unwrap();
+            assert_eq!(contract.get_admin(), accounts.bob);
         }
 
         #[ink::test]
@@ -333,7 +314,7 @@ mod azns_fee_calculator {
                 Err(Error::NotAdmin)
             );
             assert_eq!(
-                contract.set_admin(default_accounts().bob),
+                contract.transfer_ownership(Some(default_accounts().bob)),
                 Err(Error::NotAdmin)
             );
         }

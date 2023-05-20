@@ -2,6 +2,10 @@
 
 pub use self::merkle_verifier::{MerkleVerifier, MerkleVerifierRef};
 
+#[util_macros::azns_contract(Ownable2Step[
+    Error = Error::NotAdmin
+])]
+#[util_macros::azns_contract(Upgradable)]
 #[ink::contract]
 mod merkle_verifier {
 
@@ -12,6 +16,8 @@ mod merkle_verifier {
     pub struct MerkleVerifier {
         /// Admin can update the root
         admin: AccountId,
+        /// Two-step ownership transfer AccountId
+        pending_admin: Option<AccountId>,
         /// Stores the merkle root hash
         root: [u8; 32],
     }
@@ -26,7 +32,11 @@ mod merkle_verifier {
     impl MerkleVerifier {
         #[ink(constructor)]
         pub fn new(admin: AccountId, root: [u8; 32]) -> Self {
-            Self { admin, root }
+            Self {
+                admin,
+                pending_admin: None,
+                root,
+            }
         }
 
         #[ink(message)]
@@ -66,25 +76,6 @@ mod merkle_verifier {
             Keccak256::hash(input, &mut output);
             output
         }
-
-        #[ink(message)]
-        pub fn get_admin(&self) -> AccountId {
-            self.admin
-        }
-
-        #[ink(message)]
-        pub fn set_admin(&mut self, account: AccountId) -> Result<(), Error> {
-            self.ensure_admin()?;
-            self.admin = account;
-            Ok(())
-        }
-
-        fn ensure_admin(&self) -> Result<(), Error> {
-            match self.env().caller() == self.admin {
-                true => Ok(()),
-                false => Err(Error::NotAdmin),
-            }
-        }
     }
 
     #[cfg(test)]
@@ -117,17 +108,19 @@ mod merkle_verifier {
         }
 
         #[ink::test]
-        fn set_admin_works() {
+        fn ownable_2_step_works() {
             let accounts = default_accounts::<DefaultEnvironment>();
             let root = [0xff; 32];
             let mut contract = MerkleVerifier::new(accounts.alice, root);
 
             assert_eq!(contract.get_admin(), accounts.alice);
-            assert_eq!(contract.set_admin(accounts.bob), Ok(()));
-            assert_eq!(contract.get_admin(), accounts.bob);
+            contract.transfer_ownership(Some(accounts.bob)).unwrap();
 
-            // Now alice (not admin anymore) cannot update admin
-            assert_eq!(contract.set_admin(accounts.alice), Err(Error::NotAdmin));
+            assert_eq!(contract.get_admin(), accounts.alice);
+
+            ink::env::test::set_caller::<DefaultEnvironment>(accounts.bob);
+            contract.accept_ownership().unwrap();
+            assert_eq!(contract.get_admin(), accounts.bob);
         }
 
         #[ink::test]
