@@ -1385,7 +1385,11 @@ mod azns_registry {
                 if let Some(referrer_name) = referrer {
                     if self.validate_referrer(recipient, referrer_name.clone()) {
                         referrer_addr = Some(self.get_address(referrer_name).unwrap());
-                        discount = 5 * price / 100; // 5% discount
+
+                        // discount = 5 * price / 100; // 5% discount
+                        // overflow-check bug patch
+                        let tmp = 5 * price;
+                        discount = (tmp >> 7) + (tmp >> 9) + (tmp >> 12); // 5.005% discount
                     }
                 }
             }
@@ -2700,7 +2704,7 @@ mod tests {
         assert_eq!(alice_balance, 0);
 
         // 2. Discount works
-        let discount = 50;
+        let discount = 49;
         set_next_caller(default_accounts.bob);
         set_account_balance::<DefaultEnvironment>(default_accounts.bob, fees);
         transfer_in::<DefaultEnvironment>(fees - discount);
@@ -2711,11 +2715,11 @@ mod tests {
         let bob_balance = get_account_balance::<DefaultEnvironment>(default_accounts.bob).unwrap();
 
         // Initial Balance (bob): 1000
-        // Fee after discount: 9950
-        assert_eq!(bob_balance, 50);
+        // Fee after discount: 9951
+        assert_eq!(bob_balance, 49);
 
         // Affiliation payment to alice
-        assert_eq!(alice_balance, 50);
+        assert_eq!(alice_balance, 49);
     }
 
     #[ink::test]

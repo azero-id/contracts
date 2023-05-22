@@ -24,9 +24,6 @@ ink_e2e = "4.2.0"
 [lib]
 path = "lib.rs"
 
-[profile.release]
-overflow-checks = false
-
 [features]
 default = ["std"]
 std = [
