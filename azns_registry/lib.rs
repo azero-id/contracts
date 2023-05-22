@@ -240,15 +240,11 @@ mod azns_registry {
         AlreadyClaimed,
         /// The merkle proof is invalid
         InvalidMerkleProof,
-        /// Given operation can only be performed during the whitelist-phase
-        OnlyDuringWhitelistPhase,
-        /// Given operation cannot be performed during the whitelist-phase
-        RestrictedDuringWhitelistPhase,
         /// The given name is reserved and cannot to be bought
         CannotBuyReservedName,
         /// Cannot claim a non-reserved name. Consider buying it.
         NotReservedName,
-        /// User is not authorised to claim the given name
+        /// User is not authorised to perform the said task
         NotAuthorised,
         /// Zero address is not allowed
         ZeroAddress,
@@ -256,6 +252,10 @@ mod azns_registry {
         RecordsOverflow,
         /// Thrown when fee_calculator doesn't return a names' price
         FeeError(azns_fee_calculator::Error),
+        /// Given operation can only be performed during the whitelist-phase
+        OnlyDuringWhitelistPhase,
+        /// Given operation cannot be performed during the whitelist-phase
+        RestrictedDuringWhitelistPhase,
     }
 
     impl Registry {
@@ -583,6 +583,70 @@ mod azns_registry {
                 new_controller,
             });
 
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn reset_resolved_address(&mut self, names: Vec<String>) -> Result<()> {
+            let caller = self.env().caller();
+
+            for name in names.iter() {
+                let mut address_dict = self.get_address_dict_ref(&name)?;
+                let owner = address_dict.owner;
+                let resolved = address_dict.resolved;
+
+                if resolved != caller {
+                    return Err(Error::NotAuthorised);
+                }
+                if resolved != owner {
+                    address_dict.set_resolved(owner);
+
+                    /* Remove the name from the old resolved address */
+                    self.remove_name_from_resolving(&resolved, &name);
+
+                    /* Add the name to the new resolved address */
+                    self.add_name_to_resolving(&owner, &name);
+
+                    self.env().emit_event(SetAddress {
+                        name: name.to_string(),
+                        from: caller,
+                        old_address: Some(resolved),
+                        new_address: owner,
+                    });
+                }
+            }
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn reset_controller(&mut self, names: Vec<String>) -> Result<()> {
+            let caller = self.env().caller();
+
+            for name in names.iter() {
+                let mut address_dict = self.get_address_dict_ref(&name)?;
+                let owner = address_dict.owner;
+                let controller = address_dict.controller;
+
+                if controller != caller {
+                    return Err(Error::NotAuthorised);
+                }
+                if controller != owner {
+                    address_dict.set_controller(owner);
+
+                    /* Remove the name from the old controller address */
+                    self.remove_name_from_controller(&controller, &name);
+
+                    /* Add the name to the new controller address */
+                    self.add_name_to_controller(&owner, &name);
+
+                    self.env().emit_event(SetController {
+                        name: name.to_string(),
+                        from: caller,
+                        old_controller: Some(controller),
+                        new_controller: owner,
+                    });
+                }
+            }
             Ok(())
         }
 
