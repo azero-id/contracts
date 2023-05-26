@@ -21,6 +21,9 @@ pub fn ownable2step_impl(
                 account: Option<AccountId>,
             ) -> core::result::Result<(), #err_name> {
                 self.ensure_admin()?;
+                if account == Some([0u8; 32].into()) {
+                    panic!("Zero Address not allowed");
+                }
                 self.pending_admin = account;
                 Ok(())
             }
