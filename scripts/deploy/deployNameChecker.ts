@@ -18,7 +18,7 @@ export const deployNameChecker: DeployFn<NameCheckerArgs> = async (
   const args = Object.assign(
     {
       admin: account.address,
-      allowedLength: [5, 64],
+      allowedLength: [5, 32],
       allowedUnicodeRanges: [
         ['a'.charCodeAt(0), 'z'.charCodeAt(0)],
         ['0'.charCodeAt(0), '9'.charCodeAt(0)],

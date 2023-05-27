@@ -100,7 +100,8 @@ const main = async () => {
   // Transactions
   for (let i = 0; i < DOMAIN_COUNT; i++) {
     try {
-      const domainName = faker.datatype.uuid()
+      const uuid = faker.datatype.uuid()
+      const domainName = uuid.substring(0, 32)
       let domainAccount = account
 
       // Generate & fund random account
