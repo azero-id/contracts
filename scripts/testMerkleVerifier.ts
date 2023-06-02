@@ -1,5 +1,4 @@
 import { ContractPromise } from '@polkadot/api-contract'
-import { hexToNumber } from '@polkadot/util'
 import { contractQuery, getSubstrateChain } from '@scio-labs/use-inkathon'
 import * as dotenv from 'dotenv'
 import { deployMerkleVerifier } from './deploy/deployMerkleVerifier'
@@ -7,6 +6,7 @@ import { getDeploymentData } from './utils/getDeploymentData'
 import { initPolkadotJs } from './utils/initPolkadotJs'
 import { constructMerkleTree } from './whitelist/constructMerkleTree'
 import { generateInclusionProof } from './whitelist/generateInclusionProof'
+import { getWhitelistAddresses } from './whitelist/getWhitelistAddresses'
 
 // Dynamic environment variables
 const chainId = process.env.CHAIN || 'development'
@@ -14,6 +14,14 @@ dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
 
 /**
  * Script that tests merkle tree verification off- and on-chain.
+ *
+ * Parameters:
+ *  - `CHAIN`: Chain ID (optional, defaults to `development`)
+ *  - `WHITELIST`: Path to .txt file with whitelisted addresses (optional)
+ *  - `CHECK_ADDRESS`: Address to check & verify inclusion for (optional)
+ *
+ * Example usage:
+ *  - `CHAIN=alephzero-testnet WHITELIST=whitelist.txt CHECK_ADDRESS=5fei… pnpm ts-node scripts/testMerkleVerifier.ts
  */
 const main = async () => {
   const chain = getSubstrateChain(chainId)
@@ -22,28 +30,30 @@ const main = async () => {
   const initParams = await initPolkadotJs(chain, accountUri)
   const { api, keyring, account } = initParams
 
-  // Sample addresses
-  const includedAddress = account.address
-  const notIncludedAddress = keyring.addFromUri('//Bob').address
+  // Addresses to check for
+  const checkAddresses: [string, boolean][] = process.env.CHECK_ADDRESS
+    ? [[process.env.CHECK_ADDRESS, true]]
+    : [
+        [account.address, true], // Example included address
+        [keyring.addFromUri('//Bob').address, false], // Example not-included address
+      ]
 
   // Construct Merkle Tree
-  const { tree, encodedRoot } = constructMerkleTree([includedAddress])
+  const addresses = process.env.WHITELIST
+    ? await getWhitelistAddresses(process.env.WHITELIST)
+    : [account.address] // Example tree, only with included address
+  const { tree, encodedRoot } = constructMerkleTree(addresses)
 
   // Generate inclusion leafs and inclusion proofs
-  const {
-    encodedLeaf: encodedLeafA,
-    proof: proofA,
-    verification: verificationA,
-  } = generateInclusionProof(tree, includedAddress)
-  const {
-    encodedLeaf: encodedLeafB,
-    proof: proofB,
-    verification: verificationB,
-  } = generateInclusionProof(tree, notIncludedAddress)
+  const offChainProofResults: ReturnType<typeof generateInclusionProof>[] = checkAddresses.map(
+    ([address]) => generateInclusionProof(tree, address),
+  )
 
   // Off-chain verification results
-  const verificationOk = verificationA === true && verificationB === false
-  console.log('Off-chain verifications:', verificationOk ? '✅' : '❌')
+  const offChainOk = offChainProofResults.every(
+    (result, index) => result.verification === checkAddresses[index][1],
+  )
+  console.log('Off-chain verifications:', offChainOk ? '✅' : '❌')
 
   // Deploy merkle-verifier contract
   const { address } = await deployMerkleVerifier(initParams, { root: encodedRoot })
@@ -51,24 +61,24 @@ const main = async () => {
   // Create ContractPromise and query contract (verify_proof)
   const { abi } = await getDeploymentData('azns_merkle_verifier')
   const contract = new ContractPromise(api, abi, address)
-  const { result: resultA } = await contractQuery(api, address, contract, 'verify_proof', {}, [
-    encodedLeafA,
-    proofA,
-  ])
-  const { result: resultB } = await contractQuery(api, address, contract, 'verify_proof', {}, [
-    encodedLeafB,
-    proofB,
-  ])
+  const onChainProofResults: boolean[] = await Promise.all(
+    offChainProofResults.map(async ({ encodedLeaf, proof }) => {
+      const { result, output } = await contractQuery(api, address, contract, 'verify_proof', {}, [
+        encodedLeaf,
+        proof,
+      ])
+      if (result.isOk) return output.toPrimitive()?.['ok']
+
+      console.error(result)
+      throw new Error(`Error while querying contract (verify_proof).`)
+    }),
+  )
 
   // On-chain verification results
-  if (resultA.isOk && resultB.isOk) {
-    const verificationA = hexToNumber(resultA.asOk.data.toHex()) == 1
-    const verificationB = hexToNumber(resultB.asOk.data.toHex()) == 1
-    const verificationOk = verificationA === true && verificationB === false
-    console.log('On-chain verifications:', verificationOk ? '✅' : '❌')
-  } else {
-    console.error('Error while querying contract (verify_proof). Got result:', resultA, resultB)
-  }
+  const onChainOk = onChainProofResults.every(
+    (result, index) => result === checkAddresses[index][1],
+  )
+  console.log('On-chain verifications:', onChainOk ? '✅' : '❌')
 }
 
 main()
