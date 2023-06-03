@@ -11,6 +11,31 @@ pub struct UnicodeRange {
     pub upper: u32,
 }
 
+const BANNED_CHARS: &[char] = &[
+    '\u{0020}', '\u{00A0}', '\u{1680}', '\u{2000}', '\u{2001}', '\u{2002}', '\u{2003}', '\u{2004}',
+    '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}', '\u{2009}', '\u{200A}', '\u{202F}', '\u{205F}',
+    '\u{3000}', '\u{058A}', '\u{05BE}', '\u{1400}', '\u{1806}', '\u{2010}', '\u{2011}', '\u{2012}',
+    '\u{2013}', '\u{2014}', '\u{2015}', '\u{2053}', '\u{207B}', '\u{208B}', '\u{2212}', '\u{2E17}',
+    '\u{2E1A}', '\u{2E3A}', '\u{2E3B}', '\u{2E40}', '\u{2E5D}', '\u{301C}', '\u{3030}', '\u{30A0}',
+    '\u{FE31}', '\u{FE32}', '\u{FE58}', '\u{FE63}', '\u{FF0D}',
+];
+
+impl UnicodeRange {
+    fn is_valid(&self) -> bool {
+        if self.lower > self.upper {
+            return false;
+        }
+
+        for &char in BANNED_CHARS.iter() {
+            let char = char as u32;
+            if self.lower <= char && char <= self.upper {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 #[util_macros::azns_contract(Ownable2Step[
     Error = Error::NotAdmin
 ])]
@@ -56,13 +81,11 @@ mod azns_name_checker {
             allowed_unicode_ranges: Vec<UnicodeRange>,
             disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
         ) -> Self {
-            let validate_range = |rng: &UnicodeRange| rng.lower <= rng.upper;
-
             assert!(allowed_length.0 > 0 && allowed_length.0 <= allowed_length.1);
-            assert!(allowed_unicode_ranges.iter().all(validate_range));
+            assert!(allowed_unicode_ranges.iter().all(UnicodeRange::is_valid));
             assert!(disallowed_unicode_ranges_for_edges
                 .iter()
-                .all(validate_range));
+                .all(|rng| rng.lower <= rng.upper));
 
             Self {
                 admin,
@@ -141,7 +164,7 @@ mod azns_name_checker {
         pub fn set_allowed_unicode_ranges(&mut self, new_ranges: Vec<UnicodeRange>) -> Result<()> {
             self.ensure_admin()?;
 
-            if new_ranges.iter().any(|rng| rng.lower > rng.upper) {
+            if new_ranges.iter().any(UnicodeRange::is_valid) {
                 return Err(Error::InvalidRange);
             }
             self.allowed_unicode_ranges = new_ranges;
