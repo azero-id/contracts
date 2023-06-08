@@ -1,5 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[util_macros::azns_contract(Ownable2Step[
+    Error = Error::NotAdmin
+])]
+#[util_macros::azns_contract(Upgradable)]
 #[ink::contract]
 mod azns_router {
     use ink::prelude::string::{String, ToString};
@@ -14,10 +18,12 @@ mod azns_router {
     pub struct Router {
         /// Account allowed to update the state
         admin: AccountId,
-        /// Maps TLDs to their registry contract address
-        routes: Mapping<String, AccountId, ManualKey<100>>,
+        /// Two-step ownership transfer AccountId
+        pending_admin: Option<AccountId>,
         /// List of registeries registered with the router
         registry: Vec<AccountId>,
+        /// Maps TLDs to their registry contract address
+        routes: Mapping<String, AccountId, ManualKey<100>>,
     }
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -42,6 +48,7 @@ mod azns_router {
         pub fn new(admin: AccountId) -> Self {
             Self {
                 admin,
+                pending_admin: None,
                 routes: Default::default(),
                 registry: Default::default(),
             }
@@ -155,40 +162,6 @@ mod azns_router {
                 .collect()
         }
 
-        #[ink(message)]
-        pub fn get_admin(&self) -> AccountId {
-            self.admin
-        }
-
-        #[ink(message)]
-        pub fn set_admin(&mut self, account: AccountId) -> Result<()> {
-            self.ensure_admin()?;
-            self.admin = account;
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn upgrade_contract(&mut self, code_hash: [u8; 32]) -> Result<()> {
-            self.ensure_admin()?;
-
-            ink::env::set_code_hash(&code_hash).unwrap_or_else(|err| {
-                panic!(
-                    "Failed to `set_code_hash` to {:?} due to {:?}",
-                    code_hash, err
-                )
-            });
-            ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
-
-            Ok(())
-        }
-
-        fn ensure_admin(&self) -> Result<()> {
-            match self.env().caller() == self.admin {
-                true => Ok(()),
-                false => Err(Error::NotAdmin),
-            }
-        }
-
         fn extract_domain(domain: &str) -> Result<(String, String)> {
             let pos = domain.rfind('.').ok_or(Error::InvalidDomainName)?;
 
@@ -297,12 +270,18 @@ mod azns_router {
         }
 
         #[ink::test]
-        fn set_admin_works() {
+        fn ownable_2_step_works() {
+            let accounts = default_accounts();
             let mut contract = get_test_router();
 
-            assert_eq!(contract.get_admin(), default_accounts().alice);
-            contract.set_admin(default_accounts().bob).unwrap();
-            assert_eq!(contract.get_admin(), default_accounts().bob);
+            assert_eq!(contract.get_admin(), accounts.alice);
+            contract.transfer_ownership(Some(accounts.bob)).unwrap();
+
+            assert_eq!(contract.get_admin(), accounts.alice);
+
+            set_caller::<DefaultEnvironment>(accounts.bob);
+            contract.accept_ownership().unwrap();
+            assert_eq!(contract.get_admin(), accounts.bob);
         }
 
         #[test]

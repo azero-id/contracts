@@ -2,9 +2,6 @@
 
 pub use self::azns_name_checker::{NameChecker, NameCheckerRef};
 
-extern crate alloc;
-extern crate unicode_segmentation;
-
 /// Contains the bounds of a Unicode range, with each bound representing a Unicode character
 /// Used to check whether a certain character is allowed by specifying allowed ranges, such as a-z etc.
 #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode, Clone)]
@@ -14,6 +11,39 @@ pub struct UnicodeRange {
     pub upper: u32,
 }
 
+const BANNED_CHARS: &[char] = &[
+    /* Unicode whitespace/invisible characters starts from here */
+    '\u{0009}', '\u{0020}', '\u{00A0}', '\u{00AD}', '\u{034F}', '\u{061C}', '\u{070F}', '\u{115F}',
+    '\u{1160}', '\u{1680}', '\u{17B4}', '\u{17B5}', '\u{180E}', '\u{2000}', '\u{2001}', '\u{2002}',
+    '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}', '\u{2009}', '\u{200A}',
+    '\u{200B}', '\u{200C}', '\u{200D}', '\u{200E}', '\u{200F}', '\u{202F}', '\u{205F}', '\u{2060}',
+    '\u{2061}', '\u{2062}', '\u{2063}', '\u{2064}', '\u{206A}', '\u{206B}', '\u{206C}', '\u{206D}',
+    '\u{206E}', '\u{206F}', '\u{2800}', '\u{3000}', '\u{3164}', '\u{FEFF}', '\u{FFA0}',
+    /* Unicode Dash characters starts from here */
+    '\u{058A}', '\u{05BE}', '\u{1806}', '\u{2010}', '\u{2011}', '\u{2012}', '\u{2013}', '\u{207B}',
+    '\u{208B}', '\u{2212}', '\u{2E1A}', '\u{2E40}', '\u{2E5D}', '\u{FE58}', '\u{FE63}', '\u{FF0D}',
+];
+
+impl UnicodeRange {
+    fn is_valid(&self) -> bool {
+        if self.lower > self.upper {
+            return false;
+        }
+
+        for &char in BANNED_CHARS.iter() {
+            let char = char as u32;
+            if self.lower <= char && char <= self.upper {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+#[util_macros::azns_contract(Ownable2Step[
+    Error = Error::NotAdmin
+])]
+#[util_macros::azns_contract(Upgradable)]
 #[ink::contract]
 mod azns_name_checker {
     use crate::UnicodeRange;
@@ -27,9 +57,10 @@ mod azns_name_checker {
     #[ink(storage)]
     pub struct NameChecker {
         admin: AccountId,
+        pending_admin: Option<AccountId>,
+        allowed_length: (Min, Max),
         allowed_unicode_ranges: Vec<UnicodeRange>,
         disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
-        allowed_length: (Min, Max),
     }
 
     pub type Result<T> = core::result::Result<T, Error>;
@@ -43,6 +74,7 @@ mod azns_name_checker {
         TooShort,
         TooLong,
         ContainsDisallowedCharacters,
+        InvalidRange,
     }
 
     impl NameChecker {
@@ -53,12 +85,25 @@ mod azns_name_checker {
             allowed_unicode_ranges: Vec<UnicodeRange>,
             disallowed_unicode_ranges_for_edges: Vec<UnicodeRange>,
         ) -> Self {
-            Self {
+            let mut contract = Self {
                 admin,
-                allowed_unicode_ranges,
-                allowed_length,
-                disallowed_unicode_ranges_for_edges,
-            }
+                pending_admin: None,
+                allowed_unicode_ranges: Default::default(),
+                allowed_length: Default::default(),
+                disallowed_unicode_ranges_for_edges: Default::default(),
+            };
+
+            contract
+                .set_allowed_length(allowed_length)
+                .expect("invalid length(s)");
+            contract
+                .set_allowed_unicode_ranges(allowed_unicode_ranges)
+                .expect("invalid allowed-unicode-range(s)");
+            contract
+                .set_disallowed_unicode_ranges_for_edges(disallowed_unicode_ranges_for_edges)
+                .expect("invalid disallowed-unicodes-for-edges");
+
+            contract
         }
 
         #[ink(message)]
@@ -111,11 +156,6 @@ mod azns_name_checker {
         }
 
         #[ink(message)]
-        pub fn get_admin(&self) -> AccountId {
-            self.admin
-        }
-
-        #[ink(message)]
         pub fn get_allowed_unicode_ranges(&self) -> Vec<UnicodeRange> {
             self.allowed_unicode_ranges.clone()
         }
@@ -133,6 +173,10 @@ mod azns_name_checker {
         #[ink(message)]
         pub fn set_allowed_unicode_ranges(&mut self, new_ranges: Vec<UnicodeRange>) -> Result<()> {
             self.ensure_admin()?;
+
+            if !new_ranges.iter().all(UnicodeRange::is_valid) {
+                return Err(Error::InvalidRange);
+            }
             self.allowed_unicode_ranges = new_ranges;
             Ok(())
         }
@@ -143,6 +187,10 @@ mod azns_name_checker {
             new_ranges: Vec<UnicodeRange>,
         ) -> Result<()> {
             self.ensure_admin()?;
+
+            if new_ranges.iter().any(|rng| rng.lower > rng.upper) {
+                return Err(Error::InvalidRange);
+            }
             self.disallowed_unicode_ranges_for_edges = new_ranges;
             Ok(())
         }
@@ -150,37 +198,12 @@ mod azns_name_checker {
         #[ink(message)]
         pub fn set_allowed_length(&mut self, new_length: (Min, Max)) -> Result<()> {
             self.ensure_admin()?;
+
+            if new_length.0 == 0 || new_length.0 > new_length.1 {
+                return Err(Error::InvalidRange);
+            }
             self.allowed_length = new_length;
             Ok(())
-        }
-
-        #[ink(message)]
-        pub fn set_admin(&mut self, account: AccountId) -> Result<()> {
-            self.ensure_admin()?;
-            self.admin = account;
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn upgrade_contract(&mut self, code_hash: [u8; 32]) -> Result<()> {
-            self.ensure_admin()?;
-
-            ink::env::set_code_hash(&code_hash).unwrap_or_else(|err| {
-                panic!(
-                    "Failed to `set_code_hash` to {:?} due to {:?}",
-                    code_hash, err
-                )
-            });
-            ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
-
-            Ok(())
-        }
-
-        fn ensure_admin(&self) -> Result<()> {
-            match self.env().caller() == self.admin {
-                true => Ok(()),
-                false => Err(Error::NotAdmin),
-            }
         }
     }
 }
@@ -264,7 +287,7 @@ mod tests {
         let alice = default_accounts::<DefaultEnvironment>().alice;
         let checker = NameChecker::new(
             alice,
-            (0, 99),
+            (1, 99),
             vec![
                 UnicodeRange {
                     lower: 'a' as u32,
@@ -343,15 +366,43 @@ mod tests {
     }
 
     #[ink::test]
-    fn set_admin_works() {
+    fn ownable_2_step_works() {
         let accounts = default_accounts::<DefaultEnvironment>();
         let mut contract = NameChecker::new(accounts.alice, (2, 5), vec![], vec![]);
 
         assert_eq!(contract.get_admin(), accounts.alice);
-        assert_eq!(contract.set_admin(accounts.bob), Ok(()));
-        assert_eq!(contract.get_admin(), accounts.bob);
+        contract.transfer_ownership(Some(accounts.bob)).unwrap();
 
-        // Now alice (not admin anymore) cannot update admin
-        assert_eq!(contract.set_admin(accounts.alice), Err(Error::NotAdmin));
+        assert_eq!(contract.get_admin(), accounts.alice);
+
+        ink::env::test::set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.accept_ownership().unwrap();
+        assert_eq!(contract.get_admin(), accounts.bob);
+    }
+
+    #[ink::test]
+    #[should_panic(expected = "invalid allowed-unicode-range(s)")]
+    fn banned_characters_disallowed() {
+        let alice = default_accounts::<DefaultEnvironment>().alice;
+        let _checker = NameChecker::new(
+            alice,
+            (2, 5),
+            vec![
+                UnicodeRange {
+                    lower: 'a' as u32,
+                    upper: 'z' as u32,
+                },
+                UnicodeRange {
+                    lower: '0' as u32,
+                    upper: '9' as u32,
+                },
+                UnicodeRange {
+                    // Blank space
+                    lower: ' ' as u32,
+                    upper: ' ' as u32,
+                },
+            ],
+            vec![],
+        );
     }
 }

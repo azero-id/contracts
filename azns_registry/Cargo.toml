@@ -8,7 +8,9 @@ publish = false
 [dependencies]
 ink = { version = "4.2.0", default-features = false }
 
+util_macros = { path = "../util_macros" }
 interfaces = { path = "../interfaces", default-features = false }
+
 azns_name_checker = { path = "../azns_name_checker", default-features = false, features = ["ink-as-dependency"] }
 azns_fee_calculator = { path = "../azns_fee_calculator", default-features = false, features = ["ink-as-dependency"] }
 azns_merkle_verifier = { path = "../azns_merkle_verifier", default-features = false, features = ["ink-as-dependency"] }
@@ -21,9 +23,6 @@ ink_e2e = "4.2.0"
 
 [lib]
 path = "lib.rs"
-
-[profile.release]
-overflow-checks = false
 
 [features]
 default = ["std"]

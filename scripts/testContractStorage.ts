@@ -46,8 +46,9 @@ const main = async () => {
 
   // Determine registry address
   let registryAddress = process.env.REGISTRY_ADDRESS || null
-  let domainPrice: any = process.env.DOMAIN_PRICE || 0
-  domainPrice = toBNWithDecimals(domainPrice)
+  const domainPrice: any = process.env.DOMAIN_PRICE
+    ? toBNWithDecimals(process.env.DOMAIN_PRICE)
+    : new BN(1)
 
   // Deploy all contracts if no registry address is provided
   if (!registryAddress) {
