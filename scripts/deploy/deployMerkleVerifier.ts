@@ -31,11 +31,13 @@ export const deployMerkleVerifier: DeployFn<MerkleVerifierArgs> = async (
  * Deploys the `azns_merkle_verifier` contract with a merkle-tree of fetched whitelist addresses.
  */
 export const deployMerkleVerifierWithWhitelist: DeployFn<Omit<MerkleVerifierArgs, 'root'>> = async (
-  { api, account },
+  initParams,
   customArgs,
 ) => {
+  const { api, account } = initParams
+
   // Fetch whitelist addresses & construct merkle tree
-  const addresses = await getWhitelistAddresses(process.env.WHITELIST)
+  const addresses = await getWhitelistAddresses(initParams, process.env.WHITELIST)
   const { encodedRoot } = constructMerkleTree(addresses)
 
   // Gather deployment params & data
