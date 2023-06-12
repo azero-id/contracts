@@ -15,16 +15,20 @@ export const getWhitelistAddresses = async ({ prefix }: InitParams, relativeFile
   }
 
   const addresses = []
+  let line = 0
   const whitelistFile = await open(whitelistFilePath)
   for await (const address of whitelistFile.readLines()) {
-    if (!address?.length) continue
+    line++
 
-    const isValid = checkAddress(address, prefix)[0]
+    const _address = (address || '').trim()
+    if (!_address?.length) continue
+
+    const isValid = checkAddress(_address, prefix)[0]
     if (!isValid) {
-      throw new Error(`Corrupt address found in whitelist file. Aborting.`)
+      throw new Error(`Corrupt address found in whitelist file on line ${line}. Aborting.`)
     }
 
-    addresses.push(address)
+    addresses.push(_address)
   }
 
   return addresses
