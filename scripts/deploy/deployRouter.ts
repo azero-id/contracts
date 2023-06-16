@@ -1,8 +1,8 @@
 import { ContractPromise } from '@polkadot/api-contract'
 import { contractTx, deployContract } from '@scio-labs/use-inkathon'
-import { InitParams } from 'scripts/utils/initPolkadotJs'
 import { DeployFn } from '../utils/DeployFn.type'
 import { getDeploymentData } from '../utils/getDeploymentData'
+import { InitParams } from '../utils/initPolkadotJs'
 
 /**
  * Deploys the `azns_router` contract

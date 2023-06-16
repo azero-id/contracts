@@ -2,7 +2,7 @@ import { checkAddress } from '@polkadot/util-crypto'
 import { existsSync } from 'fs'
 import { open } from 'fs/promises'
 import path from 'path'
-import { InitParams } from 'scripts/utils/initPolkadotJs'
+import { InitParams } from '../utils/initPolkadotJs'
 
 /**
  * Fetch whitelist addresses from .txt file

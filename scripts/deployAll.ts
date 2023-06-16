@@ -6,7 +6,8 @@ import { deployNameChecker } from './deploy/deployNameChecker'
 import { deployRegistry } from './deploy/deployRegistry'
 import { addRegistryToRouter, deployRouter } from './deploy/deployRouter'
 import { setContractAdmins } from './deploy/setContractAdmin'
-import { addReservedNames } from './reservations/addReservedNames'
+import { addReservations } from './reservations/addReservation'
+import { getReservationsFromCSV } from './reservations/getReservationsFromCSV'
 import { ContractDeployments } from './utils/ContractDeployments.type'
 import { initPolkadotJs } from './utils/initPolkadotJs'
 import { writeContractAddresses } from './utils/writeContractAddresses'
@@ -23,10 +24,10 @@ dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
  *  - `CHAIN`: Chain ID (optional, defaults to `development`)
  *  - `ADMIN`: Address of contract admin (optional, defaults to caller)
  *  - `WHITELIST`: Path to .txt file with whitelisted addresses (optional)
- *  - `RESERVED_NAMES`: Path to .csv file with reserved names & addresses (optional)
+ *  - `RESERVATIONS`: Path to .csv file with reserved names & addresses
  *
  * Example usage:
- *  - `CHAIN=alephzero-testnet ADMIN=5fei… WHITELIST=whitelist.txt RESERVED_NAMES=reserved-names.csv pr deploy`
+ *  - `CHAIN=alephzero-testnet ADMIN=5fei… WHITELIST=whitelist.txt RESERVATIONS=reserved-names.csv pr deploy`
  */
 const main = async () => {
   const chain = getSubstrateChain(chainId)
@@ -65,7 +66,10 @@ const main = async () => {
   }
 
   // Add reserved names to registry
-  if (process.env.RESERVED_NAMES) await addReservedNames(initParams, registry.address)
+  if (process.env.RESERVATIONS) {
+    const reservations = await getReservationsFromCSV(initParams)
+    await addReservations(initParams, registry.address, reservations)
+  }
 
   // Add registry to router
   await addRegistryToRouter(initParams, router.address, tlds, registry.address)
