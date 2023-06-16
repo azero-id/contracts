@@ -41,6 +41,7 @@ const main = async () => {
     ? await deployMerkleVerifierWithWhitelist(initParams)
     : null
   const tlds = chain.network === alephzeroTestnet.network ? ['tzero'] : ['azero', 'a0']
+  const tld = tlds[0]
   const baseUri =
     chain.network === alephzeroTestnet.network
       ? 'https://tzero.id/api/v1/metadata/'
@@ -49,7 +50,7 @@ const main = async () => {
     nameCheckerAddress: nameChecker.address,
     feeCalculatorAddress: feeCalculator.address,
     merkleVerifierAddress: merkleVerifier?.address,
-    tld: tlds[0],
+    tld,
     baseUri,
   })
   const router = await deployRouter(initParams)
@@ -73,7 +74,7 @@ const main = async () => {
   if (process.env.ADMIN) await setContractAdmins(initParams, deployments)
 
   // Write contract addresses to `{contract}/{network}.ts` files
-  await writeContractAddresses(chain.network, deployments)
+  await writeContractAddresses(chain.network, deployments, { tld })
 }
 
 main()
