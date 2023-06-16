@@ -17,6 +17,7 @@ dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
  *
  * Parameters:
  *  - `CHAIN`: Chain ID (optional, defaults to `development`)
+ *  - `VERIFIER_ADDRESS`: Address of already deployed merkle-verifier contract (optional, defaults to deploying a new one)
  *  - `WHITELIST`: Path to .txt file with whitelisted addresses (optional)
  *  - `CHECK_ADDRESS`: Address to check & verify inclusion for (optional)
  *
@@ -56,17 +57,25 @@ const main = async () => {
   console.log('Off-chain verifications:', offChainOk ? '✅' : '❌')
 
   // Deploy merkle-verifier contract
-  const { address } = await deployMerkleVerifier(initParams, { root: encodedRoot })
+  let verifierAddress = process.env.VERIFIER_ADDRESS
+  if (!verifierAddress) {
+    const { address } = await deployMerkleVerifier(initParams, { root: encodedRoot })
+    verifierAddress = address
+  }
 
   // Create ContractPromise and query contract (verify_proof)
   const { abi } = await getDeploymentData('azns_merkle_verifier')
-  const contract = new ContractPromise(api, abi, address)
+  const contract = new ContractPromise(api, abi, verifierAddress)
   const onChainProofResults: boolean[] = await Promise.all(
     offChainProofResults.map(async ({ encodedLeaf, proof }) => {
-      const { result, output } = await contractQuery(api, address, contract, 'verify_proof', {}, [
-        encodedLeaf,
-        proof,
-      ])
+      const { result, output } = await contractQuery(
+        api,
+        verifierAddress,
+        contract,
+        'verify_proof',
+        {},
+        [encodedLeaf, proof],
+      )
       if (result.isOk) return output.toPrimitive()?.['ok']
 
       console.error(result)

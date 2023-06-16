@@ -15,6 +15,7 @@ export const generateInclusionProof = (tree: MerkleTree, accountId: string) => {
   const verification = tree.verify(proof, leaf, tree.getRoot())
 
   return {
+    address: accountId,
     encodedLeaf,
     proof,
     verification,
