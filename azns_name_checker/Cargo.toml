@@ -6,7 +6,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-ink = { version = "4.2.0", default-features = false }
+ink = { version = "4.2.1", default-features = false }
 
 util_macros = { path = "../util_macros" }
 
@@ -16,7 +16,7 @@ unic-emoji-char = "0.9.0"
 unicode-segmentation = "1.10.1"
 
 [dev-dependencies]
-ink_e2e = "4.2.0"
+ink_e2e = "4.2.1"
 
 [lib]
 path = "lib.rs"
