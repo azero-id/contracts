@@ -609,6 +609,27 @@ mod azns_registry {
             Ok(())
         }
 
+        // @dev ONLY for TESTING purpose; not to be used in prod
+        /// Owner can set expiry time less than the original expiry time
+        /// expiry = None denotes name is expired on the spot
+        #[ink(message)]
+        pub fn set_expiry(&mut self, name: String, expiry: Option<u64>) -> Result<()> {
+            let caller = self.env().caller();
+            self.ensure_owner(&caller, &name)?;
+
+            let (start, end) = self.name_to_period.get(&name).expect("Infallible");
+
+            let cur_time = self.env().block_timestamp();
+            let expiry = expiry.unwrap_or(cur_time);
+
+            if expiry < cur_time || expiry > end {
+                return Err(Error::NotAuthorised);
+            }
+            self.name_to_period.insert(&name, &(start, expiry));
+
+            Ok(())
+        }
+
         #[ink(message)]
         pub fn reset_resolved_address(&mut self, names: Vec<String>) -> Result<()> {
             let caller = self.env().caller();
