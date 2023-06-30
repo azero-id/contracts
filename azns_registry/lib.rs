@@ -610,12 +610,11 @@ mod azns_registry {
         }
 
         // @dev ONLY for TESTING purpose; not to be used in prod
-        /// Owner can set expiry time less than the original expiry time
         /// expiry = None denotes name is expired on the spot
         #[ink(message)]
         pub fn set_expiry(&mut self, name: String, expiry: Option<u64>) -> Result<()> {
-            let caller = self.env().caller();
-            self.ensure_owner(&caller, &name)?;
+            // let caller = self.env().caller();
+            // self.ensure_owner(&caller, &name)?;
 
             let (start, end) = self.name_to_period.get(&name).expect("Infallible");
 
