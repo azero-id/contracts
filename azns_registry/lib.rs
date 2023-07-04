@@ -600,6 +600,7 @@ mod azns_registry {
                 }
                 if resolved != owner {
                     address_dict.set_resolved(owner);
+                    self.name_to_address_dict.insert(&name, &address_dict);
 
                     /* Remove the name from the old resolved address */
                     self.remove_name_from_resolving(&resolved, &name);
@@ -632,6 +633,7 @@ mod azns_registry {
                 }
                 if controller != owner {
                     address_dict.set_controller(owner);
+                    self.name_to_address_dict.insert(&name, &address_dict);
 
                     /* Remove the name from the old controller address */
                     self.remove_name_from_controller(&controller, &name);
