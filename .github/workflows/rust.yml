@@ -30,7 +30,7 @@ jobs:
     - name: Install dylint-link
       run: cargo install dylint-link
     - name: Install Cargo Contract
-      run: cargo install cargo-contract --force --locked --version 2.0.1
+      run: cargo install cargo-contract --force --locked --version 3.0.1
     - name: Run ${{ matrix.job }}
       run: |
         for contract in ${CONTRACTS}; do
