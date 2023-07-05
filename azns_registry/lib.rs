@@ -537,7 +537,7 @@ mod azns_registry {
         pub fn set_address(&mut self, name: String, new_address: AccountId) -> Result<()> {
             /* Ensure the caller is the controller */
             let caller = Self::env().caller();
-            self.ensure_controller(&caller, &name)?;
+            self.ensure_controller_owner(&caller, &name)?;
 
             let mut address_dict = self.get_address_dict_ref(&name)?;
             let old_address = address_dict.resolved;
@@ -563,7 +563,7 @@ mod azns_registry {
         pub fn set_controller(&mut self, name: String, new_controller: AccountId) -> Result<()> {
             /* Ensure caller is either controller or owner */
             let caller = Self::env().caller();
-            self.ensure_controller(&caller, &name)?;
+            self.ensure_controller_owner(&caller, &name)?;
 
             let mut address_dict = self.get_address_dict_ref(&name)?;
             let old_controller = address_dict.controller;
@@ -571,7 +571,7 @@ mod azns_registry {
             self.name_to_address_dict.insert(&name, &address_dict);
 
             /* Remove the name from the old controller */
-            self.remove_name_from_controller(&caller, &name);
+            self.remove_name_from_controller(&old_controller, &name);
 
             /* Add the name to the new controller */
             self.add_name_to_controller(&new_controller, &name);
@@ -600,6 +600,7 @@ mod azns_registry {
                 }
                 if resolved != owner {
                     address_dict.set_resolved(owner);
+                    self.name_to_address_dict.insert(&name, &address_dict);
 
                     /* Remove the name from the old resolved address */
                     self.remove_name_from_resolving(&resolved, &name);
@@ -632,6 +633,7 @@ mod azns_registry {
                 }
                 if controller != owner {
                     address_dict.set_controller(owner);
+                    self.name_to_address_dict.insert(&name, &address_dict);
 
                     /* Remove the name from the old controller address */
                     self.remove_name_from_controller(&controller, &name);
@@ -658,7 +660,7 @@ mod azns_registry {
             remove_rest: bool,
         ) -> Result<()> {
             let caller: AccountId = Self::env().caller();
-            self.ensure_controller(&caller, &name)?;
+            self.ensure_controller_owner(&caller, &name)?;
 
             use ink::prelude::collections::BTreeMap;
 
@@ -1004,7 +1006,7 @@ mod azns_registry {
             }
         }
 
-        fn ensure_controller(&self, address: &AccountId, name: &str) -> Result<()> {
+        fn ensure_controller_owner(&self, address: &AccountId, name: &str) -> Result<()> {
             /* Ensure that the address has the right to control the target name */
             let AddressDict {
                 owner, controller, ..
