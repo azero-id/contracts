@@ -175,7 +175,7 @@ mod azns_registry {
         /// Names which can be claimed only by the specified user
         reserved_names: Mapping<String, Option<AccountId>, ManualKey<100>>,
         /// Mapping from owner to operator approvals.
-        operator_approvals: Mapping<(AccountId, AccountId, Option<Id>), (), ManualKey<101>>,
+        operator_approvals: Mapping<(AccountId, AccountId, Option<Id>), u64, ManualKey<101>>,
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
@@ -1469,10 +1469,29 @@ mod azns_registry {
 
         #[ink(message)]
         fn allowance(&self, owner: AccountId, operator: AccountId, id: Option<Id>) -> bool {
-            if id.is_some() && self.operator_approvals.contains(&(owner, operator, None)) {
+            if self.operator_approvals.contains(&(owner, operator, None)) {
                 return true;
             }
-            self.operator_approvals.contains(&(owner, operator, id))
+
+            if let Some(id_val) = id.clone() {
+                let Ok(name) = TryInto::<String>::try_into(id_val) else {
+                    return false;
+                };
+
+                let Ok((registration_time, expiration_time)) = self.get_registration_period_ref(&name) else {
+                    return false;
+                };
+
+                let Some(approval_time) = self.operator_approvals.get(&(owner, operator, id)) else {
+                    return false;
+                };
+
+                // @dev This check ensures that approval do not carry forward post domain-expiration
+                let current_time = self.env().block_timestamp();
+                return registration_time <= approval_time && current_time <= expiration_time;
+            }
+
+            false
         }
 
         #[ink(message)]
@@ -1505,8 +1524,9 @@ mod azns_registry {
 
             match approved {
                 true => {
+                    let timestamp = self.env().block_timestamp();
                     self.operator_approvals
-                        .insert((&caller, &operator, &id), &());
+                        .insert((&caller, &operator, &id), &timestamp);
                 }
                 false => self.operator_approvals.remove((&caller, &operator, &id)),
             }
