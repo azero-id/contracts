@@ -1778,6 +1778,7 @@ mod tests {
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
     use ink::primitives::AccountId;
+    use interfaces::psp34_standard::*;
 
     type Balance = u128;
 
@@ -2441,6 +2442,141 @@ mod tests {
         // Now owner is bob, `set_address` should be successful.
         assert_eq!(contract.set_address(name.clone(), accounts.eve), Ok(()));
         assert_eq!(contract.get_address(name), Ok(accounts.eve));
+    }
+
+    #[ink::test]
+    fn lock_nft_works() {
+        // Setup
+        let accounts = default_accounts();
+        let name = String::from("alice");
+        let mut contract = get_test_name_service();
+
+        set_next_caller(accounts.alice);
+        set_value_transferred::<DefaultEnvironment>(1000);
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+
+        let id: Id = name.clone().into();
+        contract
+            .approve(accounts.bob, Some(id.clone()), true)
+            .unwrap();
+
+        // Lock
+        let lock_msg = "azero.id-lock".as_bytes().to_vec();
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            PSP34::transfer(&mut contract, accounts.bob, id.clone(), lock_msg),
+            Ok(())
+        );
+
+        // Verify lock is assigned
+        assert_eq!(contract.get_lock_info(name.clone()), Some(accounts.bob));
+
+        // Verify address-dict didn't changed
+        assert_eq!(
+            contract.get_address_dict(name.clone()),
+            Ok(AddressDict {
+                owner: accounts.alice,
+                controller: accounts.alice,
+                resolved: accounts.alice
+            })
+        );
+
+        // Verify others cannot transfer it
+        set_next_caller(accounts.alice);
+        assert_eq!(
+            PSP34::transfer(&mut contract, accounts.charlie, id.clone(), vec![]),
+            Err(PSP34Error::Custom("Name is locked".to_string()))
+        )
+    }
+
+    #[ink::test]
+    fn lock_and_release_works() {
+        // Setup
+        let accounts = default_accounts();
+        let name = String::from("alice");
+        let mut contract = get_test_name_service();
+
+        set_next_caller(accounts.alice);
+        set_value_transferred::<DefaultEnvironment>(1000);
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+
+        let id: Id = name.clone().into();
+        contract
+            .approve(accounts.bob, Some(id.clone()), true)
+            .unwrap();
+
+        // Lock
+        let lock_msg = "azero.id-lock".as_bytes().to_vec();
+        set_next_caller(accounts.bob);
+        PSP34::transfer(&mut contract, accounts.bob, id.clone(), lock_msg).unwrap();
+
+        // Update resolver while in lock
+        set_next_caller(accounts.alice);
+        contract.set_address(name.clone(), accounts.eve).unwrap();
+
+        // Unlock
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            PSP34::transfer(&mut contract, accounts.alice, id.clone(), vec![]),
+            Ok(())
+        );
+
+        // Verify
+        assert_eq!(contract.get_lock_info(name.clone()), None);
+        assert_eq!(
+            contract.get_address_dict(name.clone()),
+            Ok(AddressDict {
+                owner: accounts.alice,
+                controller: accounts.alice,
+                resolved: accounts.eve
+            })
+        );
+    }
+
+    #[ink::test]
+    fn lock_and_transfer_works() {
+        // Setup
+        let accounts = default_accounts();
+        let name = String::from("alice");
+        let mut contract = get_test_name_service();
+
+        set_next_caller(accounts.alice);
+        set_value_transferred::<DefaultEnvironment>(1000);
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+
+        let id: Id = name.clone().into();
+        contract
+            .approve(accounts.bob, Some(id.clone()), true)
+            .unwrap();
+
+        // Lock
+        let lock_msg = "azero.id-lock".as_bytes().to_vec();
+        set_next_caller(accounts.bob);
+        PSP34::transfer(&mut contract, accounts.bob, id.clone(), lock_msg).unwrap();
+
+        // Unlock
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            PSP34::transfer(&mut contract, accounts.charlie, id.clone(), vec![]),
+            Ok(())
+        );
+
+        // Verify
+        assert_eq!(contract.get_lock_info(name.clone()), None);
+        assert_eq!(
+            contract.get_address_dict(name.clone()),
+            Ok(AddressDict {
+                owner: accounts.charlie,
+                controller: accounts.charlie,
+                resolved: accounts.charlie
+            })
+        );
     }
 
     #[ink::test]
