@@ -126,6 +126,24 @@ mod azns_registry {
         id: Id,
     }
 
+    /// Event emitted when a token is locked.
+    #[ink(event)]
+    pub struct Lock {
+        #[ink(topic)]
+        name: String,
+        #[ink(topic)]
+        caller: AccountId,
+        #[ink(topic)]
+        unlocker: AccountId,
+    }
+
+    /// Event emitted when a token is unlocked.
+    #[ink(event)]
+    pub struct Unlock {
+        #[ink(topic)]
+        name: String,
+    }
+
     /// Event emitted when a token approve occurs.
     #[ink(event)]
     pub struct Approval {
@@ -179,10 +197,12 @@ mod azns_registry {
 
         /// Mapping from name to addresses associated with it
         name_to_address_dict: Mapping<String, AddressDict, ManualKey<200>>,
+        /// Mapping from name to locks' key address
+        name_to_lock: Mapping<String, AccountId, ManualKey<201>>,
         /// Mapping from name to its registration period (registration_timestamp, expiration_timestamp)
         name_to_period: Mapping<String, (u64, u64), ManualKey<202>>,
         /// Records
-        records: Mapping<String, Vec<(String, String)>, ManualKey<201>>,
+        records: Mapping<String, Vec<(String, String)>, ManualKey<203>>,
 
         /// All names an address owns
         owner_to_name_count: Mapping<AccountId, u128, ManualKey<300>>,
@@ -286,6 +306,7 @@ mod azns_registry {
                 name_checker,
                 fee_calculator,
                 name_to_address_dict: Mapping::default(),
+                name_to_lock: Mapping::default(),
                 name_to_period: Mapping::default(),
                 owner_to_name_count: Default::default(),
                 owner_to_names: Default::default(),
@@ -463,6 +484,8 @@ mod azns_registry {
 
             let caller = Self::env().caller();
             self.ensure_owner(&caller, &name)?;
+            self.ensure_unlocked(&name)
+                .map_err(|_| Error::NotAuthorised)?;
 
             self.remove_name(&name);
 
@@ -831,6 +854,13 @@ mod azns_registry {
         }
 
         #[ink(message)]
+        pub fn get_lock_info(&self, name: String) -> Option<AccountId> {
+            self.name_to_lock
+                .get(&name)
+                .filter(|_| self.has_name_expired(&name) == Ok(false))
+        }
+
+        #[ink(message)]
         pub fn get_names_of_address(&self, address: AccountId) -> Vec<String> {
             let resolved_names = self.get_resolving_names_of_address(address);
             let controlled_names = self.get_controlled_names_of_address(address);
@@ -1019,6 +1049,13 @@ mod azns_registry {
             }
         }
 
+        fn ensure_unlocked(&self, name: &str) -> core::result::Result<(), PSP34Error> {
+            match self.name_to_lock.contains(name) {
+                true => Err(PSP34Error::Custom("Name is locked".to_string())),
+                false => Ok(()),
+            }
+        }
+
         fn ensure_records_under_limit(&self, name: &str) -> Result<()> {
             let size = self.records.size(name).unwrap_or(0);
             let limit = self.records_size_limit.unwrap_or(u32::MAX);
@@ -1080,6 +1117,7 @@ mod azns_registry {
             };
 
             self.name_to_address_dict.remove(name);
+            self.name_to_lock.remove(name);
             self.name_to_period.remove(name);
             self.records.remove(name);
 
@@ -1111,6 +1149,7 @@ mod azns_registry {
                     "transfer disabled during whitelist phase".to_string(),
                 ));
             }
+            self.ensure_unlocked(name)?;
 
             if to == [0u8; 32].into() {
                 return Err(PSP34Error::Custom("Zero address".to_string()));
@@ -1447,6 +1486,43 @@ mod azns_registry {
                 _ => None,
             }
         }
+
+        fn is_lock_requested(&self, data: &Vec<u8>) -> bool {
+            // Generic permissionless system
+            let msg = "azero.id-lock".as_bytes().to_vec();
+            data == &msg
+        }
+
+        fn lock_name(&mut self, to: AccountId, name: &str) -> core::result::Result<(), PSP34Error> {
+            if self.is_whitelist_phase() {
+                return Err(PSP34Error::Custom(
+                    "transfer disabled during whitelist phase".to_string(),
+                ));
+            }
+
+            self.ensure_unlocked(name)?; // Should carry-forward be allowed?
+
+            let caller = self.env().caller();
+            let id = Some(name.to_string().into());
+            let owner = self
+                .get_owner(name.to_string())
+                .map_err(|_| PSP34Error::TokenNotExists)?;
+
+            if !self.allowance(owner, caller, id.clone()) {
+                return Err(PSP34Error::NotApproved);
+            }
+
+            self.operator_approvals.remove(&(owner, caller, id));
+            self.name_to_lock.insert(name, &to);
+
+            self.env().emit_event(Lock {
+                name: name.to_string(),
+                caller,
+                unlocker: to,
+            });
+
+            Ok(())
+        }
     }
 
     impl PSP34 for Registry {
@@ -1549,7 +1625,27 @@ mod azns_registry {
             id: Id,
             data: Vec<u8>,
         ) -> core::result::Result<(), PSP34Error> {
-            let name: String = id.try_into()?;
+            let caller = self.env().caller();
+            let name: String = id.clone().try_into()?;
+            let owner = self
+                .get_owner(name.clone())
+                .map_err(|_| PSP34Error::TokenNotExists)?;
+
+            if self.is_lock_requested(&data) {
+                return self.lock_name(to, &name);
+            } else if self.name_to_lock.get(&name) == Some(caller) {
+                self.name_to_lock.remove(&name);
+
+                self.env().emit_event(Unlock { name: name.clone() });
+
+                if to == owner {
+                    return Ok(());
+                }
+
+                let time = self.env().block_timestamp();
+                self.operator_approvals
+                    .insert(&(owner, caller, Some(id)), &time);
+            }
             self.transfer_name(to, &name, false, false, false, &data)
         }
 
@@ -1682,6 +1778,7 @@ mod tests {
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
     use ink::primitives::AccountId;
+    use interfaces::psp34_standard::*;
 
     type Balance = u128;
 
@@ -2345,6 +2442,141 @@ mod tests {
         // Now owner is bob, `set_address` should be successful.
         assert_eq!(contract.set_address(name.clone(), accounts.eve), Ok(()));
         assert_eq!(contract.get_address(name), Ok(accounts.eve));
+    }
+
+    #[ink::test]
+    fn lock_nft_works() {
+        // Setup
+        let accounts = default_accounts();
+        let name = String::from("alice");
+        let mut contract = get_test_name_service();
+
+        set_next_caller(accounts.alice);
+        set_value_transferred::<DefaultEnvironment>(1000);
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+
+        let id: Id = name.clone().into();
+        contract
+            .approve(accounts.bob, Some(id.clone()), true)
+            .unwrap();
+
+        // Lock
+        let lock_msg = "azero.id-lock".as_bytes().to_vec();
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            PSP34::transfer(&mut contract, accounts.bob, id.clone(), lock_msg),
+            Ok(())
+        );
+
+        // Verify lock is assigned
+        assert_eq!(contract.get_lock_info(name.clone()), Some(accounts.bob));
+
+        // Verify address-dict didn't changed
+        assert_eq!(
+            contract.get_address_dict(name.clone()),
+            Ok(AddressDict {
+                owner: accounts.alice,
+                controller: accounts.alice,
+                resolved: accounts.alice
+            })
+        );
+
+        // Verify others cannot transfer it
+        set_next_caller(accounts.alice);
+        assert_eq!(
+            PSP34::transfer(&mut contract, accounts.charlie, id.clone(), vec![]),
+            Err(PSP34Error::Custom("Name is locked".to_string()))
+        )
+    }
+
+    #[ink::test]
+    fn lock_and_release_works() {
+        // Setup
+        let accounts = default_accounts();
+        let name = String::from("alice");
+        let mut contract = get_test_name_service();
+
+        set_next_caller(accounts.alice);
+        set_value_transferred::<DefaultEnvironment>(1000);
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+
+        let id: Id = name.clone().into();
+        contract
+            .approve(accounts.bob, Some(id.clone()), true)
+            .unwrap();
+
+        // Lock
+        let lock_msg = "azero.id-lock".as_bytes().to_vec();
+        set_next_caller(accounts.bob);
+        PSP34::transfer(&mut contract, accounts.bob, id.clone(), lock_msg).unwrap();
+
+        // Update resolver while in lock
+        set_next_caller(accounts.alice);
+        contract.set_address(name.clone(), accounts.eve).unwrap();
+
+        // Unlock
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            PSP34::transfer(&mut contract, accounts.alice, id.clone(), vec![]),
+            Ok(())
+        );
+
+        // Verify
+        assert_eq!(contract.get_lock_info(name.clone()), None);
+        assert_eq!(
+            contract.get_address_dict(name.clone()),
+            Ok(AddressDict {
+                owner: accounts.alice,
+                controller: accounts.alice,
+                resolved: accounts.eve
+            })
+        );
+    }
+
+    #[ink::test]
+    fn lock_and_transfer_works() {
+        // Setup
+        let accounts = default_accounts();
+        let name = String::from("alice");
+        let mut contract = get_test_name_service();
+
+        set_next_caller(accounts.alice);
+        set_value_transferred::<DefaultEnvironment>(1000);
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
+
+        let id: Id = name.clone().into();
+        contract
+            .approve(accounts.bob, Some(id.clone()), true)
+            .unwrap();
+
+        // Lock
+        let lock_msg = "azero.id-lock".as_bytes().to_vec();
+        set_next_caller(accounts.bob);
+        PSP34::transfer(&mut contract, accounts.bob, id.clone(), lock_msg).unwrap();
+
+        // Unlock
+        set_next_caller(accounts.bob);
+        assert_eq!(
+            PSP34::transfer(&mut contract, accounts.charlie, id.clone(), vec![]),
+            Ok(())
+        );
+
+        // Verify
+        assert_eq!(contract.get_lock_info(name.clone()), None);
+        assert_eq!(
+            contract.get_address_dict(name.clone()),
+            Ok(AddressDict {
+                owner: accounts.charlie,
+                controller: accounts.charlie,
+                resolved: accounts.charlie
+            })
+        );
     }
 
     #[ink::test]
