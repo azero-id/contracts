@@ -37,7 +37,11 @@ export const deployMerkleVerifierWithWhitelist: DeployFn<Omit<MerkleVerifierArgs
   const { api, account } = initParams
 
   // Fetch whitelist addresses & construct merkle tree
-  const addresses = await getWhitelistAddresses(initParams, process.env.WHITELIST)
+  const addresses = await getWhitelistAddresses(
+    initParams,
+    process.env.WHITELIST,
+    !!process.env.SAVE_HASHED_WHITELIST,
+  )
   const { encodedRoot } = constructMerkleTree(addresses)
 
   // Gather deployment params & data

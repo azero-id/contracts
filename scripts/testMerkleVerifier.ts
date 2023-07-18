@@ -41,7 +41,11 @@ const main = async () => {
 
   // Construct Merkle Tree
   const addresses = process.env.WHITELIST
-    ? await getWhitelistAddresses(initParams, process.env.WHITELIST)
+    ? await getWhitelistAddresses(
+        initParams,
+        process.env.WHITELIST,
+        !!process.env.SAVE_HASHED_WHITELIST,
+      )
     : [account.address] // Example tree, only with included address
   const { tree, encodedRoot } = constructMerkleTree(addresses)
 
