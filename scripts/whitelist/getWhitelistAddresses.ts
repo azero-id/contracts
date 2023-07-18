@@ -25,7 +25,15 @@ export const getWhitelistAddresses = async ({ prefix }: InitParams, relativeFile
 
     const isValid = checkAddress(_address, prefix)[0]
     if (!isValid) {
-      throw new Error(`Corrupt address found in whitelist file on line ${line}. Aborting.`)
+      throw new Error(
+        `Corrupt address '${_address}' found in whitelist file on line ${line}. Aborting.`,
+      )
+    }
+
+    if (addresses.includes(_address)) {
+      throw new Error(
+        `Duplicate address '${_address}' found in whitelist file on line ${line}. Aborting.`,
+      )
     }
 
     addresses.push(_address)
