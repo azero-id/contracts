@@ -25,7 +25,8 @@ const main = async () => {
   const chain = getSubstrateChain(chainId)
   if (!chain) throw new Error(`Chain '${chainId}' not found`)
   const accountUri = process.env.ACCOUNT_URI || '//Alice'
-  const initParams = await initPolkadotJs(chain, accountUri)
+  const derivationPath = process.env.ACCOUNT_DERIVATION_PATH || ''
+  const initParams = await initPolkadotJs(chain, `${accountUri}${derivationPath}`)
   const { api } = initParams
 
   // Create registry contract instance
