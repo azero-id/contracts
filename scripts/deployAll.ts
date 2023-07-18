@@ -36,11 +36,11 @@ const main = async () => {
   const initParams = await initPolkadotJs(chain, accountUri)
 
   // Deploy all contracts
-  const nameChecker = await deployNameChecker(initParams)
-  const feeCalculator = await deployFeeCalculator(initParams)
   const merkleVerifier = process.env.WHITELIST
     ? await deployMerkleVerifierWithWhitelist(initParams)
     : null
+  const nameChecker = await deployNameChecker(initParams)
+  const feeCalculator = await deployFeeCalculator(initParams)
   const tlds = chain.network === alephzeroTestnet.network ? ['tzero'] : ['azero', 'a0']
   const tld = tlds[0]
   const baseUri =
