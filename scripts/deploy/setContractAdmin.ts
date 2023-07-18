@@ -6,7 +6,7 @@ import { getDeploymentData } from '../utils/getDeploymentData'
 import { InitParams } from '../utils/initPolkadotJs'
 
 /**
- * Updates the admin of a given contract (that implements `set_admin`).
+ * Updates the admin of a given contract (that implements `transfer_ownership`).
  * Caller must be the current admin.
  */
 export const setContractAdmin = async (
@@ -21,10 +21,13 @@ export const setContractAdmin = async (
   const { abi } = await getDeploymentData(contractName)
   const contract = new ContractPromise(api, abi, contractAddress)
   try {
-    await contractTx(api, account, contract, 'set_admin', {}, [newAdmin])
-    console.log(`Successfully updated contract admin '${contractName}' to: ${newAdmin}`)
+    await contractTx(api, account, contract, 'transfer_ownership', {}, [newAdmin])
+    console.log(
+      `Successfully offered contract admin ownership of '${contractName}' to: ${newAdmin}.`,
+    )
+    console.log('IMPORTANT: It still needs to be accepted via `accept_ownership`.')
   } catch (error) {
-    throw new Error('Error while adding registry to router.')
+    throw new Error('Error while updating contract admin.')
   }
 }
 
