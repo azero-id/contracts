@@ -27,6 +27,11 @@ export const validateReservations = async ({ prefix }: InitParams, reservations:
     }
     const _address = address ? address : null
 
+    // Check for duplicates
+    if (validatedReservations.find(([n]) => n === _name)) {
+      throw new Error(`Duplicate reservation for name '${_name}'. Aborting.`)
+    }
+
     // Add to validated names and addresses
     validatedReservations.push([_name, _address])
   }
