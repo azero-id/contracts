@@ -113,8 +113,38 @@ mod azns_router {
         }
 
         #[ink(message)]
-        pub fn get_all_registry(&self) -> Vec<AccountId> {
-            self.registry.clone()
+        pub fn remove_registry_address(&mut self, registry_addr: AccountId) -> Result<()> {
+            self.ensure_admin()?;
+
+            if let Some(tlds) = self.associated_tlds.get(registry_addr) {
+                tlds.iter().for_each(|tld| self.routes.remove(tld));
+                self.associated_tlds.remove(registry_addr);
+                self.registry.retain(|&ele| ele != registry_addr);
+            };
+
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn get_all_registries(&self) -> Vec<(AccountId, Vec<String>)> {
+            self.registry
+                .iter()
+                .map(|&addr| (addr, self.get_associated_tlds(addr)))
+                .collect()
+        }
+
+        #[ink(message)]
+        pub fn get_all_tlds(&self) -> Vec<String> {
+            self.get_all_registries()
+                .into_iter()
+                .map(|(_, tlds)| tlds)
+                .flatten()
+                .collect()
+        }
+
+        #[ink(message)]
+        pub fn get_associated_tlds(&self, registry_addr: AccountId) -> Vec<String> {
+            self.associated_tlds.get(registry_addr).unwrap_or_default()
         }
 
         #[ink(message)]
