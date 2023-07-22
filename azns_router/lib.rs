@@ -24,6 +24,8 @@ mod azns_router {
         registry: Vec<AccountId>,
         /// Maps TLDs to their registry contract address
         routes: Mapping<String, AccountId, ManualKey<100>>,
+        /// Maps registry-address to its associated TLDs
+        associated_tlds: Mapping<AccountId, Vec<String>, ManualKey<101>>,
     }
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -41,6 +43,7 @@ mod azns_router {
         CouldNotResolveDomain,
         /// Domain does not contain valid name and/or tld
         InvalidDomainName,
+        EmptyList,
     }
 
     impl Router {
@@ -51,6 +54,7 @@ mod azns_router {
                 pending_admin: None,
                 routes: Default::default(),
                 registry: Default::default(),
+                associated_tlds: Default::default(),
             }
         }
 
@@ -64,16 +68,26 @@ mod azns_router {
                 return Err(Error::InvalidRegistryAddress);
             }
 
-            if self.registry.iter().all(|&x| x != registry_addr) {
-                self.registry.push(registry_addr);
+            if tld.is_empty() {
+                return Err(Error::EmptyList);
             }
+
+            let mut assoc_tlds = match self.associated_tlds.get(registry_addr) {
+                Some(tlds) => tlds,
+                None => {
+                    self.registry.push(registry_addr);
+                    vec![]
+                }
+            };
 
             for i in 0..tld.len() {
                 if self.routes.contains(&tld[i]) {
                     return Err(Error::TldAlreadyInUse(tld[i].clone()));
                 }
                 self.routes.insert(&tld[i], &registry_addr);
+                assoc_tlds.push(tld[i].clone());
             }
+            self.associated_tlds.insert(&registry_addr, &assoc_tlds);
 
             Ok(())
         }
@@ -93,13 +107,9 @@ mod azns_router {
             }
 
             for i in 0..tld.len() {
-                if !self.routes.contains(&tld[i]) {
-                    return Err(Error::TldNotFound(tld[i].clone()));
-                }
-                self.routes.insert(&tld[i], &registry_addr);
+                self.remove_tld(&tld[i])?;
             }
-
-            Ok(())
+            self.add_registry(tld, registry_addr)
         }
 
         #[ink(message)]
@@ -207,6 +217,29 @@ mod azns_router {
                     result
                 }
             }
+        }
+
+        fn remove_tld(&mut self, tld: &str) -> Result<()> {
+            let registry_addr = match self.routes.get(tld) {
+                Some(addr) => {
+                    self.routes.remove(tld);
+                    addr
+                }
+                None => Err(Error::TldNotFound(tld.into()))?,
+            };
+
+            self.associated_tlds.get(registry_addr).map(|mut tlds| {
+                tlds.retain(|ele| ele != tld);
+
+                if tlds.is_empty() {
+                    self.associated_tlds.remove(registry_addr);
+                    self.registry.retain(|&ele| ele != registry_addr);
+                } else {
+                    self.associated_tlds.insert(&registry_addr, &tlds);
+                }
+            });
+
+            Ok(())
         }
     }
 
