@@ -35,6 +35,8 @@ mod azns_registry {
     pub enum NameStatus {
         /// Name is registered with the given AddressDict
         Registered(AddressDict),
+        /// Name is registered and locked with the unlocking access to given AccountId
+        Locked(AccountId),
         /// Name is reserved for the given address
         Reserved(Option<AccountId>),
         /// Name is available for purchase
@@ -717,7 +719,9 @@ mod azns_registry {
         #[ink(message)]
         pub fn get_name_status(&self, names: Vec<String>) -> Vec<NameStatus> {
             let status = |name: String| {
-                if let Ok(user) = self.get_address_dict_ref(&name) {
+                if let Some(user) = self.get_lock_info(name.clone()) {
+                    NameStatus::Locked(user)
+                } else if let Ok(user) = self.get_address_dict_ref(&name) {
                     NameStatus::Registered(user)
                 } else if let Some(user) = self.reserved_names.get(&name) {
                     NameStatus::Reserved(user)
@@ -2472,6 +2476,10 @@ mod tests {
 
         // Verify lock is assigned
         assert_eq!(contract.get_lock_info(name.clone()), Some(accounts.bob));
+        assert_eq!(
+            contract.get_name_status(vec![name.clone()]),
+            vec![NameStatus::Locked(accounts.bob)]
+        );
 
         // Verify address-dict didn't changed
         assert_eq!(
