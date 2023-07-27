@@ -33,8 +33,8 @@ mod azns_registry {
     #[derive(scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, Debug, PartialEq))]
     pub enum NameStatus {
-        /// Name is registered with the given AddressDict
-        Registered(AddressDict),
+        /// Name is registered with the given AddressDict and potentially operated by given AccountId (if set)
+        Registered(AddressDict, Option<AccountId>),
         /// Name is reserved for the given address
         Reserved(Option<AccountId>),
         /// Name is available for purchase
@@ -718,7 +718,8 @@ mod azns_registry {
         pub fn get_name_status(&self, names: Vec<String>) -> Vec<NameStatus> {
             let status = |name: String| {
                 if let Ok(user) = self.get_address_dict_ref(&name) {
-                    NameStatus::Registered(user)
+                    let lock_status = self.get_lock_info(name.clone());
+                    NameStatus::Registered(user, lock_status)
                 } else if let Some(user) = self.reserved_names.get(&name) {
                     NameStatus::Reserved(user)
                 } else if self.is_name_allowed(&name) {
@@ -2470,17 +2471,25 @@ mod tests {
             Ok(())
         );
 
-        // Verify lock is assigned
-        assert_eq!(contract.get_lock_info(name.clone()), Some(accounts.bob));
-
         // Verify address-dict didn't changed
+        let address_dict = contract.get_address_dict(name.clone());
         assert_eq!(
-            contract.get_address_dict(name.clone()),
+            address_dict,
             Ok(AddressDict {
                 owner: accounts.alice,
                 controller: accounts.alice,
                 resolved: accounts.alice
             })
+        );
+
+        // Verify lock is assigned
+        assert_eq!(contract.get_lock_info(name.clone()), Some(accounts.bob));
+        assert_eq!(
+            contract.get_name_status(vec![name.clone()]),
+            vec![NameStatus::Registered(
+                address_dict.unwrap(),
+                Some(accounts.bob)
+            )]
         );
 
         // Verify others cannot transfer it
@@ -2881,7 +2890,7 @@ mod tests {
         let address_dict = AddressDict::new(accounts.bob);
         assert_eq!(
             contract.get_name_status(vec![name]),
-            vec![NameStatus::Registered(address_dict)],
+            vec![NameStatus::Registered(address_dict, None)],
         );
     }
 
@@ -2909,7 +2918,7 @@ mod tests {
         let address_dict = AddressDict::new(accounts.alice);
         assert_eq!(
             contract.get_name_status(vec!["alice".to_string()]),
-            vec![NameStatus::Registered(address_dict)]
+            vec![NameStatus::Registered(address_dict, None)]
         );
 
         assert_eq!(
@@ -3089,7 +3098,10 @@ mod tests {
         let address_dict = AddressDict::new(default_accounts().alice);
         assert_eq!(
             contract.get_name_status(vec![name1.clone(), name2.clone()]),
-            vec![NameStatus::Available, NameStatus::Registered(address_dict)]
+            vec![
+                NameStatus::Available,
+                NameStatus::Registered(address_dict, None)
+            ]
         );
 
         assert_eq!(
@@ -3139,7 +3151,10 @@ mod tests {
         let address_dict = AddressDict::new(default_accounts().alice);
         assert_eq!(
             contract.get_name_status(vec![name1.clone(), name2.clone()]),
-            vec![NameStatus::Available, NameStatus::Registered(address_dict)]
+            vec![
+                NameStatus::Available,
+                NameStatus::Registered(address_dict, None)
+            ]
         );
     }
 
