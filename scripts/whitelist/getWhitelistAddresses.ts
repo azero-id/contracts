@@ -1,6 +1,7 @@
 import { checkAddress } from '@polkadot/util-crypto'
 import { existsSync } from 'fs'
 import { open } from 'fs/promises'
+import sha3js from 'js-sha3'
 import path from 'path'
 import { hashAccountId } from '../utils/hashAccountId'
 import { InitParams } from '../utils/initPolkadotJs'
@@ -51,8 +52,13 @@ export const getWhitelistAddresses = async (
       const relativeHashedFilePath = relativeFilePath.replace(/(\.[^.]+)$/, '.hashed$1')
       const whitelistHashedFilePath = path.join(path.resolve(), relativeHashedFilePath)
       const hashedWhitelistFile = await open(whitelistHashedFilePath, 'w')
-      await hashedWhitelistFile.write(hashedAddresses.join('\n'))
+      const hashedWhitelistFileContent = hashedAddresses.join('\n')
+      const fileHash = sha3js.sha3_256(hashedWhitelistFileContent)
+      await hashedWhitelistFile.write(hashedWhitelistFileContent)
       await hashedWhitelistFile.close()
+      console.log(
+        `Hashed whitelist file saved to '${relativeHashedFilePath}' with hash '${fileHash}'`,
+      )
     } catch (e) {
       console.error(e)
       throw new Error(`Error while saving hashed version of whitelist file. Aborting.`)
