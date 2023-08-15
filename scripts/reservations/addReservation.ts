@@ -20,9 +20,19 @@ export const addReservations = async (
   const { api, account } = initParams
   const { abi } = await getDeploymentData('azns_registry')
   const contract = new ContractPromise(api, abi, registryAddress)
+
   try {
-    await contractTx(api, account, contract, 'add_reserved_names', {}, [validatedReservations])
-    console.log(`\nSuccessfully added ${validatedReservations.length} reserved names to registry.`)
+    // Add reservations to registry contract in batches
+    const amountBatches = Math.ceil(validatedReservations.length / 100)
+    for (let i = 0; i < amountBatches; i++) {
+      const batch = validatedReservations.slice(i * 100, (i + 1) * 100)
+      await contractTx(api, account, contract, 'add_reserved_names', {}, [batch])
+      console.log(
+        `Successfully added ${batch.length} reserved names to registry (batch ${
+          i + 1
+        }/${amountBatches}).`,
+      )
+    }
   } catch (error) {
     throw new Error('Error while adding reserved names to registry.')
   }
