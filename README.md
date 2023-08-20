@@ -5,9 +5,7 @@
 
 This repository contains the smart contracts of [AZERO.ID](https://azero.id).
 
-## Documentation
-
-Work-in-progress is accessible under [docs.azero.id](https://docs.azero.id).
+Find our full documentation here: **https://docs.azero.id/**.
 
 ## Development
 
@@ -43,8 +41,8 @@ pnpm node
 pnpm ts-node scripts/testMerkleVerifier.ts
 
 # Run script on other chain
-# NOTE: Make sure to create a `.env.{chain}` environment file (gitignored) with the `ACCOUNT_URI` you want to use.
-#       Also, chain must be a network-id from here: https://github.com/scio-labs/use-inkathon/blob/main/src/chains.ts.
+# IMPORTANT: Create a `.{chain}.env` environment file (gitignored) with the `ACCOUNT_URI` you want to use.
+#       Chains must be a network-id from here: https://github.com/scio-labs/use-inkathon/blob/main/src/chains.ts.
 CHAIN=alephzero-testnet pnpm ts-node scripts/testMerkleVerifier.ts
 ```
 
