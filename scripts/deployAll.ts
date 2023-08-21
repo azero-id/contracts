@@ -1,4 +1,9 @@
-import { alephzero, getSubstrateChain } from '@scio-labs/use-inkathon'
+import {
+  alephzero,
+  alephzeroTestnet,
+  development,
+  getSubstrateChain,
+} from '@scio-labs/use-inkathon'
 import * as dotenv from 'dotenv'
 import { deployFeeCalculator } from './deploy/deployFeeCalculator'
 import { deployMerkleVerifierWithWhitelist } from './deploy/deployMerkleVerifier'
@@ -45,9 +50,11 @@ const main = async () => {
   const tlds = chain.network === alephzero.network ? ['azero', 'a0'] : ['tzero']
   const tld = tlds[0]
   const baseUri =
-    chain.network === alephzero.network
-      ? 'https://azero.id/api/v1/metadata/'
-      : 'https://tzero.id/api/v1/metadata/'
+    {
+      [alephzero.network]: 'https://azero.id/api/v1/metadata/',
+      [alephzeroTestnet.network]: 'https://tzero.id/api/v1/metadata/',
+      [development.network]: 'http://localhost:3000/api/v1/metadata/',
+    }[chain.network] || 'https://tzero.id/api/v1/metadata/'
   const registry = await deployRegistry(initParams, {
     nameCheckerAddress: nameChecker.address,
     feeCalculatorAddress: feeCalculator.address,
