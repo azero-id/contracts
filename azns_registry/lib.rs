@@ -449,7 +449,11 @@ mod azns_registry {
 
         /// Allows users to claim their reserved name at zero cost
         #[ink(message)]
-        pub fn claim_reserved_name(&mut self, name: String) -> Result<()> {
+        pub fn claim_reserved_name(
+            &mut self,
+            name: String,
+            set_as_primary_name: bool,
+        ) -> Result<()> {
             let caller = self.env().caller();
 
             let Some(user) = self.reserved_names.get(&name) else {
@@ -463,6 +467,10 @@ mod azns_registry {
             let expiry_time = self.env().block_timestamp() + YEAR;
             self.register_name(&name, &caller, expiry_time)
                 .and_then(|_| {
+                    if set_as_primary_name {
+                        self.set_primary_name(Some(name.clone()))?;
+                    }
+
                     // Remove the name from the list once claimed
                     self.reserved_names.remove(&name);
                     self.env().emit_event(Reserve {
@@ -2884,19 +2892,19 @@ mod tests {
 
         // Non-reserved name cannot be claimed
         assert_eq!(
-            contract.claim_reserved_name("abcd".to_string()),
+            contract.claim_reserved_name("abcd".to_string(), false),
             Err(Error::NotReservedName),
         );
 
         // Non-authorised user cannot claim reserved name
         assert_eq!(
-            contract.claim_reserved_name(name.clone()),
+            contract.claim_reserved_name(name.clone(), false),
             Err(Error::NotAuthorised),
         );
 
         // Authorised user can claim name reserved for them
         set_next_caller(accounts.bob);
-        assert!(contract.claim_reserved_name(name.clone()).is_ok());
+        assert!(contract.claim_reserved_name(name.clone(), false).is_ok());
 
         let address_dict = AddressDict::new(accounts.bob);
         assert_eq!(
