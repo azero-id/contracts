@@ -1705,7 +1705,7 @@ mod azns_registry {
             let name: core::result::Result<String, _> = token_id.try_into();
 
             match name {
-                Ok(name) => self.base_uri.clone() + &name + &String::from(".json"),
+                Ok(name) => self.base_uri.clone() + &name + "." + &self.tld + ".json",
                 _ => String::new(),
             }
         }
