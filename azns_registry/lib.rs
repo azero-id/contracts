@@ -449,7 +449,11 @@ mod azns_registry {
 
         /// Allows users to claim their reserved name at zero cost
         #[ink(message)]
-        pub fn claim_reserved_name(&mut self, name: String) -> Result<()> {
+        pub fn claim_reserved_name(
+            &mut self,
+            name: String,
+            set_as_primary_name: bool,
+        ) -> Result<()> {
             let caller = self.env().caller();
 
             let Some(user) = self.reserved_names.get(&name) else {
@@ -463,6 +467,10 @@ mod azns_registry {
             let expiry_time = self.env().block_timestamp() + YEAR;
             self.register_name(&name, &caller, expiry_time)
                 .and_then(|_| {
+                    if set_as_primary_name {
+                        self.set_primary_name(Some(name.clone()))?;
+                    }
+
                     // Remove the name from the list once claimed
                     self.reserved_names.remove(&name);
                     self.env().emit_event(Reserve {
@@ -979,7 +987,11 @@ mod azns_registry {
         /// Reserve name name for specific addresses
         // @dev (name, None) denotes that the name is reserved but not tied to any address yet
         #[ink(message)]
-        pub fn add_reserved_names(&mut self, set: Vec<(String, Option<AccountId>)>) -> Result<()> {
+        pub fn add_reserved_names(
+            &mut self,
+            set: Vec<(String, Option<AccountId>)>,
+            skip_name_checker: bool,
+        ) -> Result<()> {
             self.ensure_admin()?;
 
             for (name, addr) in set.iter() {
@@ -990,7 +1002,11 @@ mod azns_registry {
                     return Err(Error::NameAlreadyExists);
                 }
 
-                self.reserved_names.insert(&name, addr);
+                if !skip_name_checker && !self.is_name_allowed(name) {
+                    return Err(Error::NameNotAllowed);
+                }
+
+                self.reserved_names.insert(name, addr);
                 self.env().emit_event(Reserve {
                     name: name.clone(),
                     account_id: *addr,
@@ -2078,7 +2094,7 @@ mod tests {
         let reserved_name = String::from("AlephZero");
         let reserved_list = vec![(reserved_name.clone(), Some(default_accounts.alice))];
         contract
-            .add_reserved_names(reserved_list)
+            .add_reserved_names(reserved_list, false)
             .expect("Failed to reserve name");
 
         assert_eq!(
@@ -2809,7 +2825,7 @@ mod tests {
         let reserved_name = String::from("AlephZero");
         let list = vec![(reserved_name.clone(), Some(accounts.alice))];
 
-        assert!(contract.add_reserved_names(list).is_ok());
+        assert!(contract.add_reserved_names(list, false).is_ok());
 
         assert_eq!(
             contract.get_name_status(vec![reserved_name]),
@@ -2823,13 +2839,16 @@ mod tests {
             .register(name.clone(), 1, None, None, false)
             .unwrap();
         assert_eq!(
-            contract.add_reserved_names(vec![(name, None)]),
+            contract.add_reserved_names(vec![(name, None)], false),
             Err(Error::NameAlreadyExists)
         );
 
         // Invocation from non-admin address fails
         set_next_caller(accounts.bob);
-        assert_eq!(contract.add_reserved_names(vec![]), Err(Error::NotAdmin));
+        assert_eq!(
+            contract.add_reserved_names(vec![], false),
+            Err(Error::NotAdmin)
+        );
     }
 
     #[ink::test]
@@ -2839,7 +2858,7 @@ mod tests {
 
         let reserved_name = String::from("AlephZero");
         let list = vec![(reserved_name.clone(), Some(accounts.alice))];
-        assert!(contract.add_reserved_names(list).is_ok());
+        assert!(contract.add_reserved_names(list, false).is_ok());
 
         assert_eq!(
             contract.get_name_status(vec![reserved_name.clone()]),
@@ -2868,24 +2887,24 @@ mod tests {
         let name = String::from("bob");
         let reserved_list = vec![(name.clone(), Some(accounts.bob))];
         contract
-            .add_reserved_names(reserved_list)
+            .add_reserved_names(reserved_list, false)
             .expect("Failed to add reserved name");
 
         // Non-reserved name cannot be claimed
         assert_eq!(
-            contract.claim_reserved_name("abcd".to_string()),
+            contract.claim_reserved_name("abcd".to_string(), false),
             Err(Error::NotReservedName),
         );
 
         // Non-authorised user cannot claim reserved name
         assert_eq!(
-            contract.claim_reserved_name(name.clone()),
+            contract.claim_reserved_name(name.clone(), false),
             Err(Error::NotAuthorised),
         );
 
         // Authorised user can claim name reserved for them
         set_next_caller(accounts.bob);
-        assert!(contract.claim_reserved_name(name.clone()).is_ok());
+        assert!(contract.claim_reserved_name(name.clone(), false).is_ok());
 
         let address_dict = AddressDict::new(accounts.bob);
         assert_eq!(
@@ -2908,7 +2927,7 @@ mod tests {
             "ipfs://05121999/".to_string(),
         );
 
-        contract.add_reserved_names(reserved_list).unwrap();
+        contract.add_reserved_names(reserved_list, false).unwrap();
 
         set_value_transferred::<DefaultEnvironment>(1000);
         contract
