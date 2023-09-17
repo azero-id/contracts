@@ -1,7 +1,7 @@
 import { checkAddress } from '@polkadot/util-crypto'
 import { InitParams } from '../utils/initPolkadotJs'
 import { sanitizeDomainName } from '../utils/sanitizeDomainName'
-import { Reservation } from './Reservation.interface'
+import { Reservation } from './Reservation.type'
 
 /**
  * Validates given reserved names & addresses. Throws error if invalid.

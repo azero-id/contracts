@@ -1,5 +1,5 @@
 import { deployContract } from '@scio-labs/use-inkathon'
-import { DeployFn } from '../utils/DeployFn.type'
+import { DeployFn } from '../types/DeployFn.type'
 import { getDeploymentData } from '../utils/getDeploymentData'
 import { constructMerkleTree } from '../whitelist/constructMerkleTree'
 import { getWhitelistAddresses } from '../whitelist/getWhitelistAddresses'

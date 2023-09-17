@@ -1,7 +1,7 @@
 import { ContractPromise } from '@polkadot/api-contract'
 import { contractQuery, decodeOutput, getSubstrateChain } from '@scio-labs/use-inkathon'
 import * as dotenv from 'dotenv'
-import { Reservation } from './reservations/Reservation.interface'
+import { Reservation } from './reservations/Reservation.type'
 import { addReservations } from './reservations/addReservation'
 import { getReservationsFromCSV } from './reservations/getReservationsFromCSV'
 import { getDeploymentData } from './utils/getDeploymentData'

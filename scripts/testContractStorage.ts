@@ -74,7 +74,7 @@ const main = async () => {
   await contractTx(api, account, contract, 'set_records_size_limit', {}, [recordsSizeLimit])
 
   // Track gas usage
-  const { balance: balanceStart } = await getBalance(api, account.address, 5)
+  const { balance: balanceStart } = await getBalance(api, account.address)
 
   // Parse options & print info
   const DOMAIN_COUNT = parseInt(process.env.DOMAIN_COUNT ?? '1000')
@@ -140,7 +140,7 @@ const main = async () => {
   bar.stop()
 
   // Output gas usage
-  const { balance: balanceEnd, tokenSymbol } = await getBalance(api, account.address, 5)
+  const { balance: balanceEnd, tokenSymbol } = await getBalance(api, account.address)
   const balanceDiff = balanceStart.sub(balanceEnd)
   const balanceDiffFormatted =
     balanceDiff?.div?.(new BN(10).pow(new BN(decimals - 3))).toNumber() / 1000

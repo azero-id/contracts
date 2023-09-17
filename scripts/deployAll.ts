@@ -13,7 +13,7 @@ import { addRegistryToRouter, deployRouter } from './deploy/deployRouter'
 import { setContractAdmins } from './deploy/setContractAdmin'
 import { addReservations } from './reservations/addReservation'
 import { getReservationsFromCSV } from './reservations/getReservationsFromCSV'
-import { ContractDeployments } from './utils/ContractDeployments.type'
+import { ContractDeployments } from './types/ContractDeployments.type'
 import { initPolkadotJs } from './utils/initPolkadotJs'
 import { writeContractAddresses } from './utils/writeContractAddresses'
 
@@ -32,7 +32,7 @@ dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
  *  - `RESERVATIONS`: Path to .csv file with reserved names & addresses
  *
  * Example usage:
- *  - `CHAIN=alephzero-testnet ADMIN=5fei… WHITELIST=whitelist.txt RESERVATIONS=reserved-names.csv pr deploy`
+ *  - `CHAIN=alephzero-testnet ADMIN=5fei… WHITELIST=whitelist.txt RESERVATIONS=reserved-names.csv pnpm run deploy`
  */
 const main = async () => {
   const chain = getSubstrateChain(chainId)

@@ -1,7 +1,7 @@
 import { ContractPromise } from '@polkadot/api-contract'
 import { checkAddress } from '@polkadot/util-crypto'
 import { contractTx } from '@scio-labs/use-inkathon'
-import { ContractDeployments } from '../utils/ContractDeployments.type'
+import { ContractDeployments } from '../types/ContractDeployments.type'
 import { getDeploymentData } from '../utils/getDeploymentData'
 import { InitParams } from '../utils/initPolkadotJs'
 

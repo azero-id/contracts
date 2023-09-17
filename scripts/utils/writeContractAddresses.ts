@@ -1,6 +1,6 @@
 import { writeFile } from 'fs/promises'
 import path from 'path'
-import { ContractDeployments } from './ContractDeployments.type'
+import { ContractDeployments } from '../types/ContractDeployments.type'
 
 /**
  * Writes each given contract address & blockNumber to a `{baseDir}/{contract}/{network}.ts` file.

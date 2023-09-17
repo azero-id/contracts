@@ -2,7 +2,7 @@ import { ContractPromise } from '@polkadot/api-contract'
 import { contractTx } from '@scio-labs/use-inkathon'
 import { getDeploymentData } from '../utils/getDeploymentData'
 import { InitParams } from '../utils/initPolkadotJs'
-import { Reservation } from './Reservation.interface'
+import { Reservation } from './Reservation.type'
 import { validateReservations } from './validateReservations'
 
 /**
