@@ -1,6 +1,6 @@
 import { Keyring } from '@polkadot/api'
 import { u8aToHex } from '@polkadot/util'
-import cryptojs from 'crypto-js'
+import { sha256 } from 'js-sha256'
 
 /**
  * Parses & Hashes the accountId
@@ -9,7 +9,6 @@ import cryptojs from 'crypto-js'
  */
 export const hashAccountId = (accountId: string) => {
   const keyring = new Keyring({ type: 'sr25519' })
-  const pubkey = u8aToHex(keyring.decodeAddress(accountId))
-  const hexkey = cryptojs.enc.Hex.parse(pubkey.slice(2))
-  return cryptojs.SHA256(hexkey).toString()
+  const pubkey = u8aToHex(keyring.decodeAddress(accountId), undefined, false)
+  return sha256(pubkey)
 }
