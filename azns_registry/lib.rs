@@ -2,10 +2,10 @@
 
 mod address_dict;
 
-#[util_macros::azns_contract(Ownable2Step[
+#[zink::coating(Ownable2Step[
     Error = Error::NotAdmin
 ])]
-#[util_macros::azns_contract(Upgradable)]
+#[zink::coating(Upgradable)]
 #[ink::contract]
 mod azns_registry {
     use crate::address_dict::AddressDict;
@@ -1571,11 +1571,14 @@ mod azns_registry {
                     return false;
                 };
 
-                let Ok((registration_time, expiration_time)) = self.get_registration_period_ref(&name) else {
+                let Ok((registration_time, expiration_time)) =
+                    self.get_registration_period_ref(&name)
+                else {
                     return false;
                 };
 
-                let Some(approval_time) = self.operator_approvals.get(&(owner, operator, id)) else {
+                let Some(approval_time) = self.operator_approvals.get(&(owner, operator, id))
+                else {
                     return false;
                 };
 

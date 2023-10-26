@@ -1,9 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
-#[util_macros::azns_contract(Ownable2Step[
+#[zink::coating(Ownable2Step[
     Error = Error::NotAdmin
 ])]
-#[util_macros::azns_contract(Upgradable)]
+#[zink::coating(Upgradable)]
 #[ink::contract]
 mod azns_router {
     use ink::prelude::string::{String, ToString};
