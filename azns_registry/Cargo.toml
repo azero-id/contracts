@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 ink = { version = "4.2.1", default-features = false }
 
-util_macros = { path = "../util_macros" }
+zink = { git = "https://github.com/scio-labs/zink" }
 interfaces = { path = "../interfaces", default-features = false }
 
 azns_name_checker = { path = "../azns_name_checker", default-features = false, features = ["ink-as-dependency"] }

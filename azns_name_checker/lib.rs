@@ -40,10 +40,10 @@ impl UnicodeRange {
     }
 }
 
-#[util_macros::azns_contract(Ownable2Step[
+#[zink::coating(Ownable2Step[
     Error = Error::NotAdmin
 ])]
-#[util_macros::azns_contract(Upgradable)]
+#[zink::coating(Upgradable)]
 #[ink::contract]
 mod azns_name_checker {
     use crate::UnicodeRange;
