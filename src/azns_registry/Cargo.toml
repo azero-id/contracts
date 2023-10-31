@@ -9,7 +9,7 @@ publish = false
 ink = { version = "4.2.1", default-features = false }
 
 zink = { git = "https://github.com/scio-labs/zink" }
-interfaces = { path = "../interfaces", default-features = false }
+interfaces = { path = "../../interfaces", default-features = false }
 
 azns_name_checker = { path = "../azns_name_checker", default-features = false, features = ["ink-as-dependency"] }
 azns_fee_calculator = { path = "../azns_fee_calculator", default-features = false, features = ["ink-as-dependency"] }

@@ -1,4 +1,7 @@
 {
+  "search.exclude": {
+    "**/*.{jpg,jpeg,png,svg,webm,mp4,ttf,woff,woff2}": true
+  },
   "search.useIgnoreFiles": true,
   "search.useGlobalIgnoreFiles": true,
   "search.useParentIgnoreFiles": true,
@@ -8,13 +11,15 @@
   },
   "evenBetterToml.formatter.indentString": "    ",
   "evenBetterToml.formatter.columnWidth": 120,
-  "[typescript]": {
+  "[javascriptreact][typescriptreact][javascript][typescript][markdown][html][css][scss][sass][json][jsonc][yaml]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.codeActionsOnSave": {
-      "source.organizeImports": true,
-      "source.fixAll.eslint": true
-    },
   },
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": true,
+    "source.fixAll.eslint": true
+  },
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  "javascript.updateImportsOnFileMove.enabled": "always",
   "files.associations": {
     ".env.*": "dotenv"
   },

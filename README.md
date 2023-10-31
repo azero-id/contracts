@@ -37,13 +37,13 @@ pnpm i
 # Start local development chain
 pnpm node
 
-# Run script
-pnpm ts-node scripts/testMerkleVerifier.ts
+# Run any script (from `./scripts`)
+pnpm run script testMerkleVerifier
 
 # Run script on other chain
 # IMPORTANT: Create a `.{chain}.env` environment file (gitignored) with the `ACCOUNT_URI` you want to use.
 #       Chains must be a network-id from here: https://github.com/scio-labs/use-inkathon/blob/main/src/chains.ts.
-CHAIN=alephzero-testnet pnpm ts-node scripts/testMerkleVerifier.ts
+CHAIN=alephzero-testnet pnpm run script testMerkleVerifier
 ```
 
 ## Deployment
@@ -54,6 +54,6 @@ This is an example of how to build & deploy all contracts into an external direc
 
 ```bash
 DIR=../frontend/src/deployments pnpm run build # same as `./build-all.sh`
-DIR=../frontend/src/deployments pnpm run deploy # same as `pnpm ts-node scripts/deployAll.ts`
+DIR=../frontend/src/deployments pnpm run deploy # same as `pnpm run script deploy`
 # DIR=../frontend/src/deployments CHAIN=alephzero-testnet pnpm run deploy
 ```

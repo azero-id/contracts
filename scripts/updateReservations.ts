@@ -1,32 +1,23 @@
 import { ContractPromise } from '@polkadot/api-contract'
-import { contractQuery, decodeOutput, getSubstrateChain } from '@scio-labs/use-inkathon'
-import * as dotenv from 'dotenv'
+import { contractQuery, decodeOutput } from '@scio-labs/use-inkathon'
 import { Reservation } from './reservations/Reservation.type'
 import { addReservations } from './reservations/addReservation'
 import { getReservationsFromCSV } from './reservations/getReservationsFromCSV'
 import { getDeploymentData } from './utils/getDeploymentData'
 import { InitParams, initPolkadotJs } from './utils/initPolkadotJs'
 
-// Dynamic environment variables
-const chainId = process.env.CHAIN || 'development'
-dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
-
 /**
  * Script that loads reserved names from a given .csv file and adds them to the given registry contract.
  * No deployments are done.
  *
  * Parameters:
+ *  - `DIR`: Directory to read contract build artifacts (optional, defaults to `./deployments`)
+ *  - `CHAIN`: Chain ID (optional, defaults to `development`)
  *  - `REGISTRY_ADDRESS`: Address of registry contract
  *  - `RESERVATIONS`: Path to .csv file with reserved names & addresses
- *  - `DIR`: Directory to read deploy files & write contract addresses to (optional, defaults to `./src/deployments`)
- *  - `CHAIN`: Chain ID (optional, defaults to `development`)
  */
 const main = async () => {
-  const chain = getSubstrateChain(chainId)
-  if (!chain) throw new Error(`Chain '${chainId}' not found`)
-  const accountUri = process.env.ACCOUNT_URI || '//Alice'
-  const derivationPath = process.env.ACCOUNT_DERIVATION_PATH || ''
-  const initParams = await initPolkadotJs(chain, `${accountUri}${derivationPath}`)
+  const initParams = await initPolkadotJs()
   const { api } = initParams
 
   // Create registry contract instance

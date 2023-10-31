@@ -1,6 +1,5 @@
 import { ContractPromise } from '@polkadot/api-contract'
-import { contractQuery, getSubstrateChain } from '@scio-labs/use-inkathon'
-import * as dotenv from 'dotenv'
+import { contractQuery } from '@scio-labs/use-inkathon'
 import { deployMerkleVerifier } from './deploy/deployMerkleVerifier'
 import { getDeploymentData } from './utils/getDeploymentData'
 import { initPolkadotJs } from './utils/initPolkadotJs'
@@ -8,28 +7,21 @@ import { constructMerkleTree } from './whitelist/constructMerkleTree'
 import { generateInclusionProof } from './whitelist/generateInclusionProof'
 import { getWhitelistAddresses } from './whitelist/getWhitelistAddresses'
 
-// Dynamic environment variables
-const chainId = process.env.CHAIN || 'development'
-dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
-
 /**
  * Script that tests merkle tree verification off- and on-chain.
  *
  * Parameters:
+ *  - `DIR`: Directory to read contract build artifacts (optional, defaults to `./deployments`)
  *  - `CHAIN`: Chain ID (optional, defaults to `development`)
  *  - `VERIFIER_ADDRESS`: Address of already deployed merkle-verifier contract (optional, defaults to deploying a new one)
  *  - `WHITELIST`: Path to .txt file with whitelisted addresses (optional)
  *  - `CHECK_ADDRESS`: Address to check & verify inclusion for (optional)
  *
  * Example usage:
- *  - `CHAIN=alephzero-testnet WHITELIST=whitelist.txt CHECK_ADDRESS=5fei… pnpm ts-node scripts/testMerkleVerifier.ts
+ *  - `CHAIN=alephzero-testnet WHITELIST=whitelist.txt CHECK_ADDRESS=5fei… pnpm run script testMerkleVerifier
  */
 const main = async () => {
-  const chain = getSubstrateChain(chainId)
-  if (!chain) throw new Error(`Chain '${chainId}' not found`)
-  const accountUri = process.env.ACCOUNT_URI || '//Alice'
-  const derivationPath = process.env.ACCOUNT_DERIVATION_PATH || ''
-  const initParams = await initPolkadotJs(chain, `${accountUri}${derivationPath}`)
+  const initParams = await initPolkadotJs()
   const { api, keyring, account } = initParams
 
   // Addresses to check for

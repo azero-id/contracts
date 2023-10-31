@@ -1,10 +1,4 @@
-import {
-  alephzero,
-  alephzeroTestnet,
-  development,
-  getSubstrateChain,
-} from '@scio-labs/use-inkathon'
-import * as dotenv from 'dotenv'
+import { alephzero, alephzeroTestnet, development } from '@scio-labs/use-inkathon'
 import { deployFeeCalculator } from './deploy/deployFeeCalculator'
 import { deployMerkleVerifierWithWhitelist } from './deploy/deployMerkleVerifier'
 import { deployNameChecker } from './deploy/deployNameChecker'
@@ -17,15 +11,11 @@ import { ContractDeployments } from './types/ContractDeployments.type'
 import { initPolkadotJs } from './utils/initPolkadotJs'
 import { writeContractAddresses } from './utils/writeContractAddresses'
 
-// Dynamic environment variables
-const chainId = process.env.CHAIN || 'development'
-dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
-
 /**
  * Script that deploys all contracts and writes their addresses to files.
  *
  * Parameters:
- *  - `DIR`: Directory to read deploy files & write contract addresses to (optional, defaults to `./src/deployments`)
+ *  - `DIR`: Directory to read contract build artifacts & write addresses to (optional, defaults to `./deployments`)
  *  - `CHAIN`: Chain ID (optional, defaults to `development`)
  *  - `ADMIN`: Address of contract admin (optional, defaults to caller)
  *  - `WHITELIST`: Path to .txt file with whitelisted addresses (optional)
@@ -35,11 +25,8 @@ dotenv.config({ path: `.env.${process.env.CHAIN || 'development'}` })
  *  - `CHAIN=alephzero-testnet ADMIN=5fei… WHITELIST=whitelist.txt RESERVATIONS=reserved-names.csv pnpm run deploy`
  */
 const main = async () => {
-  const chain = getSubstrateChain(chainId)
-  if (!chain) throw new Error(`Chain '${chainId}' not found`)
-  const accountUri = process.env.ACCOUNT_URI || '//Alice'
-  const derivationPath = process.env.ACCOUNT_DERIVATION_PATH || ''
-  const initParams = await initPolkadotJs(chain, `${accountUri}${derivationPath}`)
+  const initParams = await initPolkadotJs()
+  const chainId = initParams.chain.network
 
   // Deploy all contracts
   const merkleVerifier = process.env.WHITELIST
@@ -47,14 +34,14 @@ const main = async () => {
     : null
   const nameChecker = await deployNameChecker(initParams)
   const feeCalculator = await deployFeeCalculator(initParams)
-  const tlds = chain.network === alephzero.network ? ['azero', 'a0'] : ['tzero']
+  const tlds = chainId === alephzero.network ? ['azero', 'a0'] : ['tzero']
   const tld = tlds[0]
   const baseUri =
     {
       [alephzero.network]: 'https://azero.id/api/v1/metadata/',
       [alephzeroTestnet.network]: 'https://tzero.id/api/v1/metadata/',
       [development.network]: 'http://localhost:3000/api/v1/metadata/',
-    }[chain.network] || 'https://tzero.id/api/v1/metadata/'
+    }[chainId] || 'https://tzero.id/api/v1/metadata/'
   const registry = await deployRegistry(initParams, {
     nameCheckerAddress: nameChecker.address,
     feeCalculatorAddress: feeCalculator.address,
@@ -86,7 +73,7 @@ const main = async () => {
   if (process.env.ADMIN) await setContractAdmins(initParams, deployments)
 
   // Write contract addresses to `{contract}/{network}.ts` files
-  await writeContractAddresses(chain.network, deployments, { tld })
+  await writeContractAddresses(chainId, deployments, { tld })
 }
 
 main()

@@ -1,9 +1,18 @@
-#!/usr/bin/env bash -eu
+#!/usr/bin/env bash
+set -eu
 
-contracts=( "azns_name_checker" "azns_fee_calculator" "azns_merkle_verifier" "azns_registry" "azns_router" )
+# ENVIRONMENT VARIABLES
+DIR="${DIR:=./deployments}" # Output directory for build files
 
-DIR="${DIR:=./deployments}"
+# Store all folder names under `CONTRACTS_DIR` in an array
+contracts=()
+for d in $DIR/* ; do
+  if [ -d "$d" ] && [ -f "$d/metadata.json" ]; then
+    contracts+=($(basename $d))
+  fi
+done
 
+# Build all contracts
 for i in "${contracts[@]}"
 do
   echo -e "\nMinifying '$DIR/$i/metadata.json'…"
