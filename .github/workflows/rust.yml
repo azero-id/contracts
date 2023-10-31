@@ -35,5 +35,5 @@ jobs:
       run: |
         for contract in ${CONTRACTS}; do
           echo "Processing contract: $contract";
-          cargo ${{ matrix.job }} --verbose --manifest-path=$contract/Cargo.toml;
+          cargo ${{ matrix.job }} --verbose --manifest-path=src/$contract/Cargo.toml;
         done
