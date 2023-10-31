@@ -1,5 +1,6 @@
 [workspace]
 
+resolver = "1"
 members = [
     "src/azns_merkle_verifier",
     "src/azns_registry",

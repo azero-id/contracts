@@ -48,7 +48,7 @@ CHAIN=alephzero-testnet pnpm run script testMerkleVerifier
 
 ## Deployment
 
-A full deployment of all contracts is handled by `./scripts/deployAll.ts` and can be run via `pnpm run deploy`.
+A full deployment of all contracts is handled by `./scripts/deploy.ts` and can be run via `pnpm run deploy`.
 
 This is an example of how to build & deploy all contracts into an external directory (e.g. frontend repository):
 
