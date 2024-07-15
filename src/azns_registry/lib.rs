@@ -56,6 +56,15 @@ mod azns_registry {
         expiration_timestamp: u64,
     }
 
+    /// Emitted whenever a name is renewed.
+    #[ink(event)]
+    pub struct Renew {
+        #[ink(topic)]
+        name: String,
+        old_expiry: u64,
+        new_expiry: u64,
+    }
+
     #[ink(event)]
     pub struct FeeReceived {
         #[ink(topic)]
@@ -408,6 +417,48 @@ mod azns_registry {
             if set_as_primary_name {
                 self.set_primary_name(Some(name))?;
             }
+            Ok(())
+        }
+
+        #[ink(message, payable)]
+        pub fn renew(&mut self, name: String, years_to_renew: u8) -> Result<()> {
+            if self.has_name_expired(&name) != Ok(false) {
+                return Err(Error::NameDoesntExist);
+            }
+
+            let (registration, old_expiry) = self.get_registration_period_ref(&name)?;
+
+            let (base_price, premium) = match &self.fee_calculator {
+                None => (1000, 0), // For unit testing only
+                Some(model) => model
+                    .get_name_price(name.clone(), years_to_renew)
+                    .map_err(Error::FeeError)?,
+            };
+            let price = base_price + premium;
+
+            let transferred = self.env().transferred_value();
+            if transferred < price {
+                return Err(Error::FeeNotPaid);
+            } else if transferred > price {
+                let caller = self.env().caller();
+                let change = transferred - price;
+
+                if self.env().transfer(caller, change).is_err() {
+                    return Err(Error::WithdrawFailed);
+                }
+            }
+
+            let new_expiry = old_expiry + YEAR * years_to_renew as u64;
+            self.name_to_period
+                .insert(&name, &(registration, new_expiry));
+
+            // Emit event
+            self.env().emit_event(Renew {
+                name,
+                old_expiry,
+                new_expiry,
+            });
+
             Ok(())
         }
 
@@ -2025,6 +2076,73 @@ mod tests {
         assert_eq!(
             get_account_balance::<DefaultEnvironment>(contract_addr),
             Ok(1000)
+        );
+    }
+
+    #[ink::test]
+    fn renew_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
+
+        set_next_caller(default_accounts.alice);
+        let mut contract = get_test_name_service();
+
+        // Try renewing a non-existant name
+        assert_eq!(contract.renew(name.clone(), 2), Err(Error::NameDoesntExist));
+
+        let origin_time = GRACE_TIMESTAMP;
+        set_block_timestamp::<DefaultEnvironment>(origin_time);
+
+        // Register a name
+        set_value_transferred::<DefaultEnvironment>(1000);
+        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+
+        // Get current expiry
+        assert_eq!(
+            contract.get_registration_period(name.clone()),
+            Ok((origin_time, origin_time + 60))
+        );
+
+        // Renew the name
+        assert_eq!(contract.renew(name.clone(), 2), Ok(()));
+
+        // Get new expiry
+        assert_eq!(
+            contract.get_registration_period(name.clone()),
+            Ok((origin_time, origin_time + 180))
+        );
+    }
+
+    #[ink::test]
+    fn renew_excess_fee_works() {
+        let default_accounts = default_accounts();
+        let name = String::from("test");
+
+        set_next_caller(default_accounts.alice);
+        let mut contract = get_test_name_service();
+        let contract_addr = contract.env().account_id();
+
+        set_account_balance::<DefaultEnvironment>(default_accounts.alice, 3000);
+
+        transfer_in::<DefaultEnvironment>(1000);
+        assert_eq!(contract.register(name.clone(), 1, None, true), Ok(()));
+        assert_eq!(
+            get_account_balance::<DefaultEnvironment>(default_accounts.alice),
+            Ok(2000)
+        );
+
+        // Transfer extra fee
+        transfer_in::<DefaultEnvironment>(1234);
+        assert_eq!(contract.renew(name.clone(), 1), Ok(()));
+
+        assert_eq!(
+            get_account_balance::<DefaultEnvironment>(default_accounts.alice),
+            Ok(1000)
+        );
+
+        assert_eq!(
+            get_account_balance::<DefaultEnvironment>(contract_addr),
+            Ok(2000)
         );
     }
 
