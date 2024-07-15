@@ -104,10 +104,7 @@ mod azns_fee_calculator {
                 .get(name.len() as Length)
                 .unwrap_or(self.common_price);
 
-            let mut premium = 0;
-            for year in 2..=duration {
-                premium += (year as u128) * base_price;
-            }
+            let premium = (duration as u128 - 1) * base_price;
 
             Ok((base_price, premium))
         }
@@ -228,13 +225,13 @@ mod azns_fee_calculator {
             // Duration: 2
             assert_eq!(
                 contract.get_name_price(name.clone(), 2),
-                Ok((6_u128 * 10_u128.pow(12), 12_u128 * 10_u128.pow(12)))
+                Ok((6_u128 * 10_u128.pow(12), 6_u128 * 10_u128.pow(12)))
             );
 
             // Duration: 3
             assert_eq!(
                 contract.get_name_price(name.clone(), 3),
-                Ok((6_u128 * 10_u128.pow(12), 30_u128 * 10_u128.pow(12)))
+                Ok((6_u128 * 10_u128.pow(12), 12_u128 * 10_u128.pow(12)))
             );
 
             // Duration: 4
