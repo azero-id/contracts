@@ -9,7 +9,6 @@ export type RegistryArgs = {
   admin: string
   nameCheckerAddress: string
   feeCalculatorAddress: string
-  merkleVerifierAddress: string
   tld: string
   baseUri: string
 }
@@ -19,7 +18,6 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
       admin: account.address,
       nameCheckerAddress: null,
       feeCalculatorAddress: null,
-      merkleVerifierAddress: null,
       tld: 'azero',
       baseUri: 'https://azero.id/api/v1/metadata/',
     } as RegistryArgs,
@@ -31,7 +29,6 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
     args.admin,
     args.nameCheckerAddress,
     args.feeCalculatorAddress,
-    args.merkleVerifierAddress,
     args.tld,
     args.baseUri,
   ])
