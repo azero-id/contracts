@@ -294,6 +294,8 @@ mod azns_registry {
             let fee_calculator =
                 fee_calculator_addr.map(|addr| FeeCalculatorRef::from_account_id(addr));
 
+            Self::env().emit_event(PublicPhaseActivated {});
+
             Self {
                 admin,
                 pending_admin: None,
