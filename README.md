@@ -38,12 +38,12 @@ pnpm i
 pnpm node
 
 # Run any script (from `./scripts`)
-pnpm run script testMerkleVerifier
+pnpm run script testContractStorage
 
 # Run script on other chain
 # IMPORTANT: Create a `.{chain}.env` environment file (gitignored) with the `ACCOUNT_URI` you want to use.
 #       Chains must be a network-id from here: https://github.com/scio-labs/use-inkathon/blob/main/src/chains.ts.
-CHAIN=alephzero-testnet pnpm run script testMerkleVerifier
+CHAIN=alephzero-testnet pnpm run script testContractStorage
 ```
 
 ## Deployment

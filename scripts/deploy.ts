@@ -1,6 +1,5 @@
 import { alephzero, alephzeroTestnet, development } from '@scio-labs/use-inkathon'
 import { deployFeeCalculator } from './deploy/deployFeeCalculator'
-import { deployMerkleVerifierWithWhitelist } from './deploy/deployMerkleVerifier'
 import { deployNameChecker } from './deploy/deployNameChecker'
 import { deployRegistry } from './deploy/deployRegistry'
 import { addRegistryToRouter, deployRouter } from './deploy/deployRouter'
@@ -18,20 +17,16 @@ import { writeContractAddresses } from './utils/writeContractAddresses'
  *  - `DIR`: Directory to read contract build artifacts & write addresses to (optional, defaults to `./deployments`)
  *  - `CHAIN`: Chain ID (optional, defaults to `development`)
  *  - `ADMIN`: Address of contract admin (optional, defaults to caller)
- *  - `WHITELIST`: Path to .txt file with whitelisted addresses (optional)
  *  - `RESERVATIONS`: Path to .csv file with reserved names & addresses
  *
  * Example usage:
- *  - `CHAIN=alephzero-testnet ADMIN=5fei… WHITELIST=whitelist.txt RESERVATIONS=reserved-names.csv pnpm run deploy`
+ *  - `CHAIN=alephzero-testnet ADMIN=5fei… RESERVATIONS=reserved-names.csv pnpm run deploy`
  */
 const main = async () => {
   const initParams = await initPolkadotJs()
   const chainId = initParams.chain.network
 
   // Deploy all contracts
-  const merkleVerifier = process.env.WHITELIST
-    ? await deployMerkleVerifierWithWhitelist(initParams)
-    : null
   const nameChecker = await deployNameChecker(initParams)
   const feeCalculator = await deployFeeCalculator(initParams)
   const tlds = chainId === alephzero.network ? ['azero', 'a0'] : ['tzero']
@@ -45,7 +40,6 @@ const main = async () => {
   const registry = await deployRegistry(initParams, {
     nameCheckerAddress: nameChecker.address,
     feeCalculatorAddress: feeCalculator.address,
-    merkleVerifierAddress: merkleVerifier?.address,
     tld,
     baseUri,
   })
@@ -55,7 +49,6 @@ const main = async () => {
   const deployments: ContractDeployments = {
     azns_name_checker: nameChecker,
     azns_fee_calculator: feeCalculator,
-    azns_merkle_verifier: merkleVerifier,
     azns_registry: registry,
     azns_router: router,
   }

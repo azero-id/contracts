@@ -58,7 +58,6 @@ const main = async () => {
     const { address } = await deployRegistry(initParams, {
       nameCheckerAddress,
       feeCalculatorAddress,
-      merkleVerifierAddress: null,
     })
     registryAddress = address
   }
