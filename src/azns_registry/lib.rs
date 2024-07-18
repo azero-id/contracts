@@ -348,6 +348,7 @@ mod azns_registry {
             recipient: AccountId,
             years_to_register: u8,
             referrer: Option<String>,
+            bonus_name: Option<String>,
         ) -> Result<()> {
             if !self.is_name_allowed(&name) {
                 return Err(Error::NameNotAllowed);
@@ -394,7 +395,7 @@ mod azns_registry {
                 forwarded_referrer_fee: discount,
             });
 
-            Ok(())
+            self.redeem_bonus_name(bonus_name, years_to_register, recipient)
         }
 
         /// Register specific name with caller as owner.
@@ -406,6 +407,7 @@ mod azns_registry {
             name: String,
             years_to_register: u8,
             referrer: Option<String>,
+            bonus_name: Option<String>,
             set_as_primary_name: bool,
         ) -> Result<()> {
             self.register_on_behalf_of(
@@ -413,6 +415,7 @@ mod azns_registry {
                 self.env().caller(),
                 years_to_register,
                 referrer,
+                bonus_name,
             )?;
             if set_as_primary_name {
                 self.set_primary_name(Some(name))?;
@@ -421,7 +424,12 @@ mod azns_registry {
         }
 
         #[ink(message, payable)]
-        pub fn renew(&mut self, name: String, years_to_renew: u8) -> Result<()> {
+        pub fn renew(
+            &mut self,
+            name: String,
+            years_to_renew: u8,
+            bonus_name: Option<String>,
+        ) -> Result<()> {
             if self.has_name_expired(&name) != Ok(false) {
                 return Err(Error::NameDoesntExist);
             }
@@ -454,12 +462,13 @@ mod azns_registry {
 
             // Emit event
             self.env().emit_event(Renew {
-                name,
+                name: name.clone(),
                 old_expiry,
                 new_expiry,
             });
 
-            Ok(())
+            let owner = self.get_owner(name)?;
+            self.redeem_bonus_name(bonus_name, years_to_renew, owner)
         }
 
         /// Allows users to claim their reserved name at zero cost
@@ -1518,6 +1527,20 @@ mod azns_registry {
 
             Ok(())
         }
+
+        fn redeem_bonus_name(
+            &mut self,
+            name: Option<String>,
+            period_extended: u8,
+            owner: AccountId,
+        ) -> Result<()> {
+            if period_extended < 10 || name.is_none() {
+                return Ok(());
+            }
+
+            let expiry_time = self.env().block_timestamp() + YEAR;
+            self.register_name(&name.unwrap(), &owner, expiry_time)
+        }
     }
 
     impl PSP34 for Registry {
@@ -1811,13 +1834,22 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name2.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name2.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name3.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name3.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         /* Now alice owns three names */
         /* getting all owned names should return all three */
@@ -1838,15 +1870,24 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name2.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name2.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         /* Register bar under bob, but set controller to alice */
         set_next_caller(default_accounts.bob);
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name3.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name3.clone(), 1, None, None, false),
+            Ok(())
+        );
         assert_eq!(
             contract.set_controller(name3.clone(), default_accounts.alice),
             Ok(())
@@ -1871,11 +1912,17 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         set_next_caller(default_accounts.charlie);
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name2.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name2.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         /* getting all names should return first only */
         assert_eq!(
@@ -1886,7 +1933,10 @@ mod tests {
         /* Register bar under bob, but set resolved address to alice */
         set_next_caller(default_accounts.bob);
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name3.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name3.clone(), 1, None, None, false),
+            Ok(())
+        );
         assert_eq!(
             contract.set_address(name3.clone(), default_accounts.alice),
             Ok(())
@@ -1922,10 +1972,16 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name2.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name2.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         /* getting all names should return first two */
         assert_eq!(
@@ -1936,7 +1992,10 @@ mod tests {
         /* Register bar under bob, but set resolved address to alice */
         set_next_caller(default_accounts.bob);
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name3.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name3.clone(), 1, None, None, false),
+            Ok(())
+        );
         assert_eq!(
             contract.set_address(name3.clone(), default_accounts.alice),
             Ok(())
@@ -1970,13 +2029,16 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name2, 1, None, false), Ok(()));
+        assert_eq!(contract.register(name2, 1, None, None, false), Ok(()));
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name3, 1, None, false), Ok(()));
+        assert_eq!(contract.register(name3, 1, None, None, false), Ok(()));
 
         /* Now alice owns three names */
         /* Set the primary name for alice's address to name 1 */
@@ -2016,7 +2078,10 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
         set_value_transferred::<DefaultEnvironment>(1000);
         assert_eq!(
             contract.get_owned_names_of_address(default_accounts.alice),
@@ -2024,7 +2089,7 @@ mod tests {
         );
         set_value_transferred::<DefaultEnvironment>(1000);
         assert_eq!(
-            contract.register(name, 1, None, false),
+            contract.register(name, 1, None, None, false),
             Err(Error::NameAlreadyExists)
         );
 
@@ -2036,7 +2101,7 @@ mod tests {
             .expect("Failed to reserve name");
 
         assert_eq!(
-            contract.register(reserved_name, 1, None, false),
+            contract.register(reserved_name, 1, None, None, false),
             Err(Error::CannotBuyReservedName)
         );
     }
@@ -2050,7 +2115,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, true), Ok(()));
+        assert_eq!(contract.register(name.clone(), 1, None, None, true), Ok(()));
 
         assert_eq!(contract.get_primary_name(default_accounts.alice), Ok(name));
     }
@@ -2066,7 +2131,7 @@ mod tests {
 
         set_account_balance::<DefaultEnvironment>(default_accounts.alice, 2000);
         transfer_in::<DefaultEnvironment>(1234);
-        assert_eq!(contract.register(name.clone(), 1, None, true), Ok(()));
+        assert_eq!(contract.register(name.clone(), 1, None, None, true), Ok(()));
 
         assert_eq!(
             get_account_balance::<DefaultEnvironment>(default_accounts.alice),
@@ -2088,14 +2153,20 @@ mod tests {
         let mut contract = get_test_name_service();
 
         // Try renewing a non-existant name
-        assert_eq!(contract.renew(name.clone(), 2), Err(Error::NameDoesntExist));
+        assert_eq!(
+            contract.renew(name.clone(), 2, None),
+            Err(Error::NameDoesntExist)
+        );
 
         let origin_time = GRACE_TIMESTAMP;
         set_block_timestamp::<DefaultEnvironment>(origin_time);
 
         // Register a name
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         // Get current expiry
         assert_eq!(
@@ -2104,7 +2175,7 @@ mod tests {
         );
 
         // Renew the name
-        assert_eq!(contract.renew(name.clone(), 2), Ok(()));
+        assert_eq!(contract.renew(name.clone(), 2, None), Ok(()));
 
         // Get new expiry
         assert_eq!(
@@ -2125,7 +2196,7 @@ mod tests {
         set_account_balance::<DefaultEnvironment>(default_accounts.alice, 3000);
 
         transfer_in::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, true), Ok(()));
+        assert_eq!(contract.register(name.clone(), 1, None, None, true), Ok(()));
         assert_eq!(
             get_account_balance::<DefaultEnvironment>(default_accounts.alice),
             Ok(2000)
@@ -2133,7 +2204,7 @@ mod tests {
 
         // Transfer extra fee
         transfer_in::<DefaultEnvironment>(1234);
-        assert_eq!(contract.renew(name.clone(), 1), Ok(()));
+        assert_eq!(contract.renew(name.clone(), 1, None), Ok(()));
 
         assert_eq!(
             get_account_balance::<DefaultEnvironment>(default_accounts.alice),
@@ -2160,7 +2231,7 @@ mod tests {
         set_next_caller(default_accounts.bob);
         set_account_balance::<DefaultEnvironment>(default_accounts.bob, fees);
         transfer_in::<DefaultEnvironment>(fees);
-        assert_eq!(contract.register(name, 1, None, false), Ok(()));
+        assert_eq!(contract.register(name, 1, None, None, false), Ok(()));
 
         // Alice (admin) withdraws the funds
         set_next_caller(default_accounts.alice);
@@ -2185,7 +2256,7 @@ mod tests {
         let _acc_balance_before_transfer: Balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name, 1, None, false), Ok(()));
+        assert_eq!(contract.register(name, 1, None, None, false), Ok(()));
 
         set_next_caller(default_accounts.bob);
         assert_eq!(contract.withdraw(None, None), Err(Error::NotAdmin));
@@ -2201,9 +2272,9 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name, 1, None, false), Ok(()));
+        assert_eq!(contract.register(name, 1, None, None, false), Ok(()));
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name2, 1, None, false), Ok(()));
+        assert_eq!(contract.register(name2, 1, None, None, false), Ok(()));
         assert!(contract
             .get_owned_names_of_address(default_accounts.alice)
             .contains(&String::from("test")));
@@ -2222,7 +2293,7 @@ mod tests {
 
         set_value_transferred::<DefaultEnvironment>(1000);
         assert_eq!(
-            contract.register(name, 1, None, false),
+            contract.register(name, 1, None, None, false),
             Err(Error::NameNotAllowed)
         );
     }
@@ -2249,9 +2320,12 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
         assert_eq!(
-            contract.register(name, 1, None, false),
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
+        assert_eq!(
+            contract.register(name, 1, None, None, false),
             Err(Error::NameAlreadyExists)
         );
     }
@@ -2265,7 +2339,7 @@ mod tests {
         let mut contract = get_test_name_service();
 
         assert_eq!(
-            contract.register(name, 1, None, false),
+            contract.register(name, 1, None, None, false),
             Err(Error::FeeNotPaid)
         );
     }
@@ -2279,7 +2353,10 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.alice),
             Ok(())
@@ -2329,7 +2406,10 @@ mod tests {
         /* Another account can register again*/
         set_next_caller(default_accounts.bob);
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
         assert_eq!(
             contract.set_address(name.clone(), default_accounts.bob),
             Ok(())
@@ -2353,7 +2433,9 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(1000);
-        contract.register(name.clone(), 1, None, false).unwrap();
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
 
         // Caller is not controller, `set_address` should fail.
         set_next_caller(accounts.bob);
@@ -2390,7 +2472,10 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         // Caller is not controller, `set_address` should fail.
         set_next_caller(accounts.bob);
@@ -2414,7 +2499,10 @@ mod tests {
 
         let mut contract = get_test_name_service();
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         // Test transfer of owner.
         assert_eq!(
@@ -2458,7 +2546,9 @@ mod tests {
 
         set_next_caller(accounts.alice);
         set_value_transferred::<DefaultEnvironment>(1000);
-        contract.register(name.clone(), 1, None, false).unwrap();
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
 
         let id: Id = name.clone().into();
         contract
@@ -2511,7 +2601,9 @@ mod tests {
 
         set_next_caller(accounts.alice);
         set_value_transferred::<DefaultEnvironment>(1000);
-        contract.register(name.clone(), 1, None, false).unwrap();
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
 
         let id: Id = name.clone().into();
         contract
@@ -2555,7 +2647,9 @@ mod tests {
 
         set_next_caller(accounts.alice);
         set_value_transferred::<DefaultEnvironment>(1000);
-        contract.register(name.clone(), 1, None, false).unwrap();
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
 
         let id: Id = name.clone().into();
         contract
@@ -2599,7 +2693,10 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name_name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name_name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         assert_eq!(
             contract.update_records(name_name.clone(), records.clone(), false),
@@ -2644,7 +2741,10 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        assert_eq!(contract.register(name_name.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name_name.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         assert_eq!(
             contract.update_records(
@@ -2691,7 +2791,9 @@ mod tests {
         let mut contract = get_test_name_service();
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        contract.register(name.clone(), 1, None, false).unwrap();
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
 
         // add initial records values
         assert_eq!(
@@ -2768,7 +2870,9 @@ mod tests {
         assert_eq!(contract.get_records_size_limit(), Some(41));
 
         set_value_transferred::<DefaultEnvironment>(1000);
-        contract.register(name.clone(), 1, None, false).unwrap();
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
 
         // With current input, records cannot be stored simultaneously
         assert_eq!(
@@ -2807,7 +2911,9 @@ mod tests {
         // Cannot reserve already registered-name
         let name = "alice".to_string();
         set_value_transferred::<DefaultEnvironment>(1000);
-        contract.register(name.clone(), 1, None, false).unwrap();
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
         assert_eq!(
             contract.add_reserved_names(vec![(name, None)], false),
             Err(Error::NameAlreadyExists)
@@ -2900,7 +3006,7 @@ mod tests {
 
         set_value_transferred::<DefaultEnvironment>(1000);
         contract
-            .register("alice".to_string(), 1, None, false)
+            .register("alice".to_string(), 1, None, None, false)
             .expect("failed to register name");
 
         let address_dict = AddressDict::new(accounts.alice);
@@ -2957,7 +3063,7 @@ mod tests {
         set_callee::<DefaultEnvironment>(contract.env().account_id());
         transfer_in::<DefaultEnvironment>(fees);
         assert_eq!(
-            contract.register(alice.clone(), 1, Some(bob.clone()), false),
+            contract.register(alice.clone(), 1, Some(bob.clone()), None, false),
             Ok(())
         );
 
@@ -2973,7 +3079,7 @@ mod tests {
         set_next_caller(default_accounts.bob);
         set_account_balance::<DefaultEnvironment>(default_accounts.bob, fees);
         transfer_in::<DefaultEnvironment>(fees - discount);
-        assert_eq!(contract.register(bob, 1, Some(alice), false), Ok(()));
+        assert_eq!(contract.register(bob, 1, Some(alice), None, false), Ok(()));
 
         let alice_balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
@@ -3004,12 +3110,18 @@ mod tests {
         set_account_balance::<DefaultEnvironment>(default_accounts.alice, fees);
         set_callee::<DefaultEnvironment>(contract.env().account_id());
         transfer_in::<DefaultEnvironment>(fees);
-        assert_eq!(contract.register(alice.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(alice.clone(), 1, None, None, false),
+            Ok(())
+        );
 
         // 2. Self-referral doesn't work
         set_account_balance::<DefaultEnvironment>(default_accounts.alice, fees);
         transfer_in::<DefaultEnvironment>(fees);
-        assert_eq!(contract.register(wonderland, 1, Some(alice), false), Ok(()));
+        assert_eq!(
+            contract.register(wonderland, 1, Some(alice), None, false),
+            Ok(())
+        );
 
         let alice_balance =
             get_account_balance::<DefaultEnvironment>(default_accounts.alice).unwrap();
@@ -3032,7 +3144,9 @@ mod tests {
         );
 
         transfer_in::<DefaultEnvironment>(1000);
-        contract.register(name.clone(), 1, None, false).unwrap();
+        contract
+            .register(name.clone(), 1, None, None, false)
+            .unwrap();
         contract
             .set_controller(name.clone(), default_accounts.bob)
             .unwrap();
@@ -3076,11 +3190,15 @@ mod tests {
 
         // Register name1 for one year
         transfer_in::<DefaultEnvironment>(1000);
-        contract.register(name1.clone(), 1, None, true).unwrap();
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
 
         // Register name2 for two years
         transfer_in::<DefaultEnvironment>(1000);
-        contract.register(name2.clone(), 2, None, false).unwrap();
+        contract
+            .register(name2.clone(), 2, None, None, false)
+            .unwrap();
 
         set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP);
 
@@ -3118,11 +3236,15 @@ mod tests {
 
         // Register name1 for one year
         transfer_in::<DefaultEnvironment>(1000);
-        contract.register(name1.clone(), 1, None, true).unwrap();
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
 
         // Register name2 for two years
         transfer_in::<DefaultEnvironment>(1000);
-        contract.register(name2.clone(), 2, None, false).unwrap();
+        contract
+            .register(name2.clone(), 2, None, None, false)
+            .unwrap();
 
         set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP);
 
@@ -3151,23 +3273,30 @@ mod tests {
 
         // Register name1 for one year
         transfer_in::<DefaultEnvironment>(1000);
-        contract.register(name1.clone(), 1, None, true).unwrap();
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
 
         // Register name2 for two years
         transfer_in::<DefaultEnvironment>(1000);
-        contract.register(name2.clone(), 2, None, false).unwrap();
+        contract
+            .register(name2.clone(), 2, None, None, false)
+            .unwrap();
 
         // Registering an active name causes error
         set_next_caller(default_accounts().bob);
         assert_eq!(
-            contract.register(name1.clone(), 1, None, false),
+            contract.register(name1.clone(), 1, None, None, false),
             Err(Error::NameAlreadyExists)
         );
 
         set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP);
 
         // Registering an expired name works
-        assert_eq!(contract.register(name1.clone(), 1, None, false), Ok(()));
+        assert_eq!(
+            contract.register(name1.clone(), 1, None, None, false),
+            Ok(())
+        );
     }
 
     #[ink::test]
@@ -3208,5 +3337,57 @@ mod tests {
             contract.get_name_status(vec![name1.clone()]),
             vec![NameStatus::Available]
         );
+    }
+
+    #[ink::test]
+    fn redeem_bonus_name_works_with_register_works() {
+        let accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        let name1 = "name-1".to_string();
+        let name2 = "name-2".to_string();
+        let bonus_name = "name-3".to_string();
+
+        set_next_caller(default_accounts().alice);
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name1.clone(), 1, None, Some(bonus_name.clone()), false)
+            .unwrap();
+
+        assert_eq!(
+            contract.get_owner(bonus_name.clone()),
+            Err(Error::NameDoesntExist)
+        );
+
+        contract
+            .register(name2, 10, None, Some(bonus_name.clone()), false)
+            .unwrap();
+        assert_eq!(contract.get_owner(bonus_name), Ok(accounts.alice))
+    }
+
+    #[ink::test]
+    fn redeem_bonus_name_works_with_renewal_works() {
+        let accounts = default_accounts();
+        let mut contract = get_test_name_service();
+
+        let name1 = "name-1".to_string();
+        let name2 = "name-2".to_string();
+
+        set_next_caller(default_accounts().alice);
+        transfer_in::<DefaultEnvironment>(1000);
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
+
+        contract
+            .renew(name1.clone(), 9, Some(name2.clone()))
+            .unwrap();
+        assert_eq!(
+            contract.get_owner(name2.clone()),
+            Err(Error::NameDoesntExist)
+        );
+
+        contract.renew(name1, 10, Some(name2.clone())).unwrap();
+        assert_eq!(contract.get_owner(name2), Ok(accounts.alice))
     }
 }
