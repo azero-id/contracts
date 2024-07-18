@@ -364,17 +364,7 @@ mod azns_registry {
             let price = base_price + premium - discount;
 
             /* Make sure the register is paid for */
-            let transferred = self.env().transferred_value();
-            if transferred < price {
-                return Err(Error::FeeNotPaid);
-            } else if transferred > price {
-                let caller = self.env().caller();
-                let change = transferred - price;
-
-                if self.env().transfer(caller, change).is_err() {
-                    return Err(Error::WithdrawFailed);
-                }
-            }
+            self.handle_payment(price)?;
 
             let expiry_time = self.env().block_timestamp() + YEAR * years_to_register as u64;
             self.register_name(&name, &recipient, expiry_time)?;
@@ -443,18 +433,7 @@ mod azns_registry {
                     .map_err(Error::FeeError)?,
             };
             let price = base_price + premium;
-
-            let transferred = self.env().transferred_value();
-            if transferred < price {
-                return Err(Error::FeeNotPaid);
-            } else if transferred > price {
-                let caller = self.env().caller();
-                let change = transferred - price;
-
-                if self.env().transfer(caller, change).is_err() {
-                    return Err(Error::WithdrawFailed);
-                }
-            }
+            self.handle_payment(price)?;
 
             let new_expiry = old_expiry + YEAR * years_to_renew as u64;
             self.name_to_period
@@ -1540,6 +1519,21 @@ mod azns_registry {
 
             let expiry_time = self.env().block_timestamp() + YEAR;
             self.register_name(&name.unwrap(), &owner, expiry_time)
+        }
+
+        fn handle_payment(&mut self, price: Balance) -> Result<()> {
+            let transferred = self.env().transferred_value();
+            if transferred < price {
+                return Err(Error::FeeNotPaid);
+            } else if transferred > price {
+                let caller = self.env().caller();
+                let change = transferred - price;
+
+                if self.env().transfer(caller, change).is_err() {
+                    return Err(Error::WithdrawFailed);
+                }
+            }
+            Ok(())
         }
     }
 
