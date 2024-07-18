@@ -419,35 +419,22 @@ mod azns_registry {
             name: String,
             years_to_renew: u8,
             bonus_name: Option<String>,
-        ) -> Result<()> {
-            if self.has_name_expired(&name) != Ok(false) {
-                return Err(Error::NameDoesntExist);
-            }
-
-            let (registration, old_expiry) = self.get_registration_period_ref(&name)?;
-
-            let (base_price, premium) = match &self.fee_calculator {
-                None => (1000, 0), // For unit testing only
-                Some(model) => model
-                    .get_name_price(name.clone(), years_to_renew)
-                    .map_err(Error::FeeError)?,
-            };
-            let price = base_price + premium;
+        ) -> Result<Balance> {
+            let price = self.do_renew(name, years_to_renew, bonus_name)?;
             self.handle_payment(price)?;
+            Ok(price)
+        }
 
-            let new_expiry = old_expiry + YEAR * years_to_renew as u64;
-            self.name_to_period
-                .insert(&name, &(registration, new_expiry));
+        #[ink(message, payable)]
+        pub fn batch_renew(&mut self, data: Vec<(String, u8, Option<String>)>) -> Result<Balance> {
+            let mut cost = 0;
 
-            // Emit event
-            self.env().emit_event(Renew {
-                name: name.clone(),
-                old_expiry,
-                new_expiry,
-            });
+            for item in data {
+                cost += self.do_renew(item.0, item.1, item.2)?;
+            }
+            self.handle_payment(cost)?;
 
-            let owner = self.get_owner(name)?;
-            self.redeem_bonus_name(bonus_name, years_to_renew, owner)
+            Ok(cost)
         }
 
         /// Allows users to claim their reserved name at zero cost
@@ -1507,6 +1494,43 @@ mod azns_registry {
             Ok(())
         }
 
+        fn do_renew(
+            &mut self,
+            name: String,
+            years_to_renew: u8,
+            bonus_name: Option<String>,
+        ) -> Result<Balance> {
+            if self.has_name_expired(&name) != Ok(false) {
+                return Err(Error::NameDoesntExist);
+            }
+
+            let (registration, old_expiry) = self.get_registration_period_ref(&name)?;
+
+            let (base_price, premium) = match &self.fee_calculator {
+                None => (1000, 0), // For unit testing only
+                Some(model) => model
+                    .get_name_price(name.clone(), years_to_renew)
+                    .map_err(Error::FeeError)?,
+            };
+            let price = base_price + premium;
+
+            let new_expiry = old_expiry + YEAR * years_to_renew as u64;
+            self.name_to_period
+                .insert(&name, &(registration, new_expiry));
+
+            // Emit event
+            self.env().emit_event(Renew {
+                name: name.clone(),
+                old_expiry,
+                new_expiry,
+            });
+
+            let owner = self.get_owner(name)?;
+            self.redeem_bonus_name(bonus_name, years_to_renew, owner)?;
+
+            Ok(price)
+        }
+
         fn redeem_bonus_name(
             &mut self,
             name: Option<String>,
@@ -2169,7 +2193,7 @@ mod tests {
         );
 
         // Renew the name
-        assert_eq!(contract.renew(name.clone(), 2, None), Ok(()));
+        assert_eq!(contract.renew(name.clone(), 2, None), Ok(1000));
 
         // Get new expiry
         assert_eq!(
@@ -2198,7 +2222,7 @@ mod tests {
 
         // Transfer extra fee
         transfer_in::<DefaultEnvironment>(1234);
-        assert_eq!(contract.renew(name.clone(), 1, None), Ok(()));
+        assert_eq!(contract.renew(name.clone(), 1, None), Ok(1000));
 
         assert_eq!(
             get_account_balance::<DefaultEnvironment>(default_accounts.alice),
