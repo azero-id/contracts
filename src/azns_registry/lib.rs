@@ -389,10 +389,8 @@ mod azns_registry {
         }
 
         /// Register specific name with caller as owner.
-        ///
-        /// NOTE: Whitelisted addresses can buy one name during the whitelist phase by submitting its proof
         #[ink(message, payable)]
-        pub fn register(
+        pub fn register_v2(
             &mut self,
             name: String,
             years_to_register: u8,
@@ -411,6 +409,19 @@ mod azns_registry {
                 self.set_primary_name(Some(name))?;
             }
             Ok(())
+        }
+
+        /// register_v1
+        #[ink(message, payable)]
+        pub fn register(
+            &mut self,
+            name: String,
+            years_to_register: u8,
+            referrer: Option<String>,
+            _merkle_proof: Option<Vec<[u8; 32]>>,
+            set_as_primary_name: bool,
+        ) -> Result<()> {
+            self.register_v2(name, years_to_register, referrer, None, set_as_primary_name)
         }
 
         #[ink(message, payable)]
@@ -3341,7 +3352,9 @@ mod tests {
 
         // Register name1 for one year
         transfer_in::<DefaultEnvironment>(1000);
-        contract.register(name1.clone(), 1, None, true).unwrap();
+        contract
+            .register(name1.clone(), 1, None, None, true)
+            .unwrap();
 
         set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP - 1);
         let address_dict = AddressDict::new(default_accounts().alice);
@@ -3369,7 +3382,7 @@ mod tests {
         set_next_caller(default_accounts().alice);
         transfer_in::<DefaultEnvironment>(1000);
         contract
-            .register(name1.clone(), 1, None, Some(bonus_name.clone()), false)
+            .register_v2(name1.clone(), 1, None, Some(bonus_name.clone()), false)
             .unwrap();
 
         assert_eq!(
@@ -3378,7 +3391,7 @@ mod tests {
         );
 
         contract
-            .register(name2, 10, None, Some(bonus_name.clone()), false)
+            .register_v2(name2, 10, None, Some(bonus_name.clone()), false)
             .unwrap();
         assert_eq!(contract.get_owner(bonus_name), Ok(accounts.alice))
     }
