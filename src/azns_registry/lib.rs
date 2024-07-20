@@ -1387,13 +1387,26 @@ mod azns_registry {
         }
 
         fn get_registration_period_ref(&self, name: &str) -> Result<(u64, u64)> {
-            self.name_to_period.get(name).ok_or(Error::NameDoesntExist)
+            // 1st Oct 2024 00:00 (UTC)
+            const GRACE_TIMESTAMP: u64 = 1727740800000; // TODO: set appropriate timestamp
+
+            self.name_to_period
+                .get(name)
+                .map(|(start, expiry)| {
+                    let expiry = match expiry {
+                        0 => 0,
+                        _ if expiry <= GRACE_TIMESTAMP => GRACE_TIMESTAMP,
+                        _ => expiry,
+                    };
+                    (start, expiry)
+                })
+                .ok_or(Error::NameDoesntExist)
         }
 
         fn has_name_expired(&self, name: &str) -> Result<bool> {
-            match self.name_to_period.get(name) {
-                Some((_, expiry)) => Ok(expiry <= self.env().block_timestamp()),
-                None => Err(Error::NameDoesntExist),
+            match self.get_registration_period_ref(name) {
+                Ok((_, expiry)) => Ok(expiry <= self.env().block_timestamp()),
+                _ => Err(Error::NameDoesntExist),
             }
         }
 
@@ -3032,5 +3045,10 @@ mod tests {
         set_caller::<DefaultEnvironment>(accounts.bob);
         contract.accept_ownership().unwrap();
         assert_eq!(contract.get_admin(), accounts.bob);
+    }
+
+    #[ink::test]
+    fn grace_period_works() {
+        // TODO:
     }
 }
