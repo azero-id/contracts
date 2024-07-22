@@ -21,10 +21,13 @@ mod azns_registry {
     use azns_merkle_verifier::MerkleVerifierRef;
     use azns_name_checker::NameCheckerRef;
 
-    const YEAR: u64 = match cfg!(test) {
+    pub const YEAR: u64 = match cfg!(test) {
         true => 60,                         // For testing purpose
         false => 365 * 24 * 60 * 60 * 1000, // Year in milliseconds
     };
+
+    // 1st Oct 2024 00:00 (UTC)
+    pub const GRACE_TIMESTAMP: u64 = 1727740800000; // TODO: set appropriate timestamp
 
     pub type Result<T> = core::result::Result<T, Error>;
 
@@ -1387,9 +1390,6 @@ mod azns_registry {
         }
 
         fn get_registration_period_ref(&self, name: &str) -> Result<(u64, u64)> {
-            // 1st Oct 2024 00:00 (UTC)
-            const GRACE_TIMESTAMP: u64 = 1727740800000; // TODO: set appropriate timestamp
-
             self.name_to_period
                 .get(name)
                 .map(|(start, expiry)| {
@@ -2929,6 +2929,8 @@ mod tests {
         let name1 = "one-year".to_string();
         let name2 = "two-year".to_string();
 
+        set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP - YEAR);
+
         // Register name1 for one year
         transfer_in::<DefaultEnvironment>(1000);
         contract.register(name1.clone(), 1, None, true).unwrap();
@@ -2937,10 +2939,7 @@ mod tests {
         transfer_in::<DefaultEnvironment>(1000);
         contract.register(name2.clone(), 2, None, false).unwrap();
 
-        // (for cfg(test)) block_time = 6, year = 60
-        for _ in 0..10 {
-            advance_block::<DefaultEnvironment>();
-        }
+        set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP);
 
         let address_dict = AddressDict::new(default_accounts().alice);
         assert_eq!(
@@ -2972,6 +2971,8 @@ mod tests {
         let name1 = "one-year".to_string();
         let name2 = "two-year".to_string();
 
+        set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP - YEAR);
+
         // Register name1 for one year
         transfer_in::<DefaultEnvironment>(1000);
         contract.register(name1.clone(), 1, None, true).unwrap();
@@ -2980,10 +2981,7 @@ mod tests {
         transfer_in::<DefaultEnvironment>(1000);
         contract.register(name2.clone(), 2, None, false).unwrap();
 
-        // (for cfg(test)) block_time = 6, year = 60
-        for _ in 0..10 {
-            advance_block::<DefaultEnvironment>();
-        }
+        set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP);
 
         // Only the expired names are cleared
         assert_eq!(
@@ -3023,10 +3021,7 @@ mod tests {
             Err(Error::NameAlreadyExists)
         );
 
-        // (for cfg(test)) block_time = 6, year = 60
-        for _ in 0..10 {
-            advance_block::<DefaultEnvironment>();
-        }
+        set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP);
 
         // Registering an expired name works
         assert_eq!(contract.register(name1.clone(), 1, None, false), Ok(()));
@@ -3049,6 +3044,26 @@ mod tests {
 
     #[ink::test]
     fn grace_period_works() {
-        // TODO:
+        let mut contract = get_test_name_service();
+        let name1 = "one-year".to_string();
+
+        set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP - YEAR - 10);
+
+        // Register name1 for one year
+        transfer_in::<DefaultEnvironment>(1000);
+        contract.register(name1.clone(), 1, None, true).unwrap();
+
+        set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP - 1);
+        let address_dict = AddressDict::new(default_accounts().alice);
+        assert_eq!(
+            contract.get_name_status(vec![name1.clone()]),
+            vec![NameStatus::Registered(address_dict, None)]
+        );
+
+        set_block_timestamp::<DefaultEnvironment>(GRACE_TIMESTAMP);
+        assert_eq!(
+            contract.get_name_status(vec![name1.clone()]),
+            vec![NameStatus::Available]
+        );
     }
 }
