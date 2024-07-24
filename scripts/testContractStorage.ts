@@ -148,7 +148,7 @@ const main = async () => {
  */
 const registerDomain = async (api, account, contract, domainPrice, domainName) => {
   try {
-    await contractTx(api, account, contract, 'register', { value: domainPrice }, [
+    await contractTx(api, account, contract, 'register_v2', { value: domainPrice }, [
       domainName,
       1,
       null,
