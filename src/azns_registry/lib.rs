@@ -1368,6 +1368,17 @@ mod azns_registry {
         }
 
         #[ink(message)]
+        pub fn batch_get_name_price(
+            &self,
+            input: Vec<(String, AccountId, u8, Option<String>)>,
+        ) -> Vec<Result<(Balance, Balance, Balance, Option<AccountId>)>> {
+            input
+                .into_iter()
+                .map(|item| self.get_name_price(item.0, item.1, item.2, item.3))
+                .collect()
+        }
+
+        #[ink(message)]
         pub fn validate_referrer(&self, recipient: AccountId, referrer_name: String) -> bool {
             self.get_address_dict_ref(&referrer_name)
                 .map_or(false, |x| {
@@ -2794,6 +2805,20 @@ mod tests {
             contract.get_name_status(vec!["".to_string()]),
             vec![NameStatus::Unavailable]
         );
+    }
+
+    #[ink::test]
+    fn batch_get_name_price_works() {
+        let contract = get_test_name_service();
+        let inp = vec![
+            ("alice".to_string(), default_accounts().alice, 1, None),
+            ("bob".to_string(), default_accounts().bob, 2, None),
+        ];
+
+        assert_eq!(
+            contract.batch_get_name_price(inp),
+            vec![Ok((1000, 0, 0, None)), Ok((1000, 0, 0, None))]
+        )
     }
 
     #[ink::test]
