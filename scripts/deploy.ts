@@ -18,6 +18,7 @@ import { writeContractAddresses } from './utils/writeContractAddresses'
  *  - `CHAIN`: Chain ID (optional, defaults to `development`)
  *  - `ADMIN`: Address of contract admin (optional, defaults to caller)
  *  - `RESERVATIONS`: Path to .csv file with reserved names & addresses
+ *  - `NEW_CONFIG`: If set, use new default price (10 AZERO) & max registration duration (200 years)
  *
  * Example usage:
  *  - `CHAIN=alephzero-testnet ADMIN=5fei… RESERVATIONS=reserved-names.csv pnpm run deploy`
@@ -27,8 +28,15 @@ const main = async () => {
   const chainId = initParams.chain.network
 
   // Deploy all contracts
+  const useNewConfig = ['true', true, '1', 1].includes(process.env.NEW_CONFIG || '')
+  const feeCalculator = await deployFeeCalculator(
+    initParams,
+    useNewConfig && {
+      maxRegistrationDuration: 200,
+      commonPrice: initParams.toBNWithDecimals(10),
+    },
+  )
   const nameChecker = await deployNameChecker(initParams)
-  const feeCalculator = await deployFeeCalculator(initParams)
   const tlds = chainId === alephzero.network ? ['azero', 'a0'] : ['tzero']
   const tld = tlds[0]
   const baseUri =
