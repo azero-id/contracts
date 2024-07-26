@@ -27,7 +27,7 @@ mod azns_registry {
     };
 
     // 1st Oct 2024 00:00 (UTC)
-    pub const GRACE_TIMESTAMP: u64 = 1727740800000; // TODO: set appropriate timestamp
+    pub const GRACE_TIMESTAMP: u64 = 1727740800000;
 
     pub type Result<T> = core::result::Result<T, Error>;
 
