@@ -56,15 +56,6 @@ mod azns_registry {
         expiration_timestamp: u64,
     }
 
-    /// Emitted whenever a name is renewed.
-    #[ink(event)]
-    pub struct Renew {
-        #[ink(topic)]
-        name: String,
-        old_expiry: u64,
-        new_expiry: u64,
-    }
-
     #[ink(event)]
     pub struct FeeReceived {
         #[ink(topic)]
@@ -179,6 +170,15 @@ mod azns_registry {
         #[ink(topic)]
         account_id: Option<AccountId>,
         action: bool,
+    }
+
+    /// Emitted whenever a name is renewed.
+    #[ink(event)]
+    pub struct Renew {
+        #[ink(topic)]
+        name: String,
+        old_expiry: u64,
+        new_expiry: u64,
     }
 
     #[ink(storage)]
