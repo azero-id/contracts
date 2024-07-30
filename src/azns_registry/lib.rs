@@ -1552,8 +1552,17 @@ mod azns_registry {
                 return Ok(());
             }
 
+            let name = name.unwrap();
+            if !self.is_name_allowed(&name) {
+                return Err(Error::NameNotAllowed);
+            }
+            // The name must not be a reserved name
+            if self.reserved_names.contains(&name) {
+                return Err(Error::CannotBuyReservedName);
+            }
+
             let expiry_time = self.env().block_timestamp() + YEAR;
-            self.register_name(&name.unwrap(), &owner, expiry_time)
+            self.register_name(&name, &owner, expiry_time)
         }
 
         fn handle_payment(&mut self, price: Balance) -> Result<()> {
@@ -3420,5 +3429,34 @@ mod tests {
 
         contract.renew(name1, 10, Some(name2.clone())).unwrap();
         assert_eq!(contract.get_owner(name2), Ok(accounts.alice))
+    }
+
+    #[ink::test]
+    fn redeem_bonus_name_fails_on_invalid_name() {
+        let mut contract = get_test_name_service();
+        let name1 = "name-1".to_string();
+        let name2 = "name-2".to_string();
+
+        set_next_caller(default_accounts().alice);
+        transfer_in::<DefaultEnvironment>(1000);
+
+        // Bonus names not passing the name-checker fails
+        let empty_name = String::new();
+        assert_eq!(
+            contract.register_v2(name1.clone(), 10, None, Some(empty_name.clone()), false),
+            Err(Error::NameNotAllowed)
+        );
+
+        // Reserved names cannot be redeemed as bonus
+        let reserved_name = String::from("bob");
+        let reserved_list = vec![(reserved_name.clone(), None)];
+        contract
+            .add_reserved_names(reserved_list, false)
+            .expect("Failed to add reserved name");
+
+        assert_eq!(
+            contract.register_v2(name2.clone(), 10, None, Some(reserved_name.clone()), false),
+            Err(Error::CannotBuyReservedName)
+        );
     }
 }
