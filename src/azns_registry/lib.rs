@@ -1553,7 +1553,7 @@ mod azns_registry {
             }
 
             let name = name.unwrap();
-            if !self.is_name_allowed(&name) {
+            if !self.is_name_allowed(&name) || name.len() < 5 {
                 return Err(Error::NameNotAllowed);
             }
             // The name must not be a reserved name
@@ -3448,7 +3448,7 @@ mod tests {
         );
 
         // Reserved names cannot be redeemed as bonus
-        let reserved_name = String::from("bob");
+        let reserved_name = String::from("bobby");
         let reserved_list = vec![(reserved_name.clone(), None)];
         contract
             .add_reserved_names(reserved_list, false)
