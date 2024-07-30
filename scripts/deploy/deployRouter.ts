@@ -18,8 +18,9 @@ export const deployRouter: DeployFn<RouterArgs> = async ({ api, account }, custo
     customArgs,
   )
   const { abi, wasm } = await getDeploymentData('azns_router')
+  const nonce = await api.rpc.system.accountNextIndex(account.address)
 
-  return await deployContract(api, account, abi, wasm, 'new', [args.admin])
+  return await deployContract(api, account, abi, wasm, 'new', [args.admin], undefined, { nonce })
 }
 
 /**
