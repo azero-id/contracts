@@ -29,11 +29,21 @@ export const deployNameChecker: DeployFn<NameCheckerArgs> = async (
     customArgs,
   )
   const { abi, wasm } = await getDeploymentData('azns_name_checker')
+  const nonce = await api.rpc.system.accountNextIndex(account.address)
 
-  return await deployContract(api, account, abi, wasm, 'new', [
-    args.admin,
-    args.allowedLength,
-    args.allowedUnicodeRanges,
-    args.disallowedUnicodeRangesForEdges,
-  ])
+  return await deployContract(
+    api,
+    account,
+    abi,
+    wasm,
+    'new',
+    [
+      args.admin,
+      args.allowedLength,
+      args.allowedUnicodeRanges,
+      args.disallowedUnicodeRangesForEdges,
+    ],
+    undefined,
+    { nonce },
+  )
 }

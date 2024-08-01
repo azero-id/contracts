@@ -24,12 +24,16 @@ export const deployRegistry: DeployFn<RegistryArgs> = async ({ api, account }, c
     customArgs,
   )
   const { abi, wasm } = await getDeploymentData('azns_registry')
+  const nonce = await api.rpc.system.accountNextIndex(account.address)
 
-  return await deployContract(api, account, abi, wasm, 'new', [
-    args.admin,
-    args.nameCheckerAddress,
-    args.feeCalculatorAddress,
-    args.tld,
-    args.baseUri,
-  ])
+  return await deployContract(
+    api,
+    account,
+    abi,
+    wasm,
+    'new',
+    [args.admin, args.nameCheckerAddress, args.feeCalculatorAddress, args.tld, args.baseUri],
+    undefined,
+    { nonce },
+  )
 }

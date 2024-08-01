@@ -32,11 +32,16 @@ export const deployFeeCalculator: DeployFn<FeeCalculatorArgs> = async (
     customArgs,
   )
   const { abi, wasm } = await getDeploymentData('azns_fee_calculator')
+  const nonce = await api.rpc.system.accountNextIndex(account.address)
 
-  return await deployContract(api, account, abi, wasm, 'new', [
-    args.admin,
-    args.maxRegistrationDuration,
-    args.commonPrice,
-    args.pricePoints,
-  ])
+  return await deployContract(
+    api,
+    account,
+    abi,
+    wasm,
+    'new',
+    [args.admin, args.maxRegistrationDuration, args.commonPrice, args.pricePoints],
+    undefined,
+    { nonce },
+  )
 }
